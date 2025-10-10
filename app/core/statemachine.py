@@ -73,6 +73,8 @@ class UserSession:
     current_index: int = 0
     step_rt: Optional[StepRuntime] = None
     inflight: bool = False
+    inflight_since_ms: Optional[int] = None  # Track when inflight was set
+    inflight_frame_id: Optional[str] = None  # Track which frame is inflight
     frame_buffer: Deque[str] = field(default_factory=lambda: deque(maxlen=10))  # frame_ids
     last_frame_at_ms: Optional[int] = None
 
@@ -233,7 +235,10 @@ class UserStateMachine:
             return
 
         # Mark inflight done for this user
+        logger.info(f"[STATE_MACHINE] *** SETTING INFLIGHT=FALSE *** - username={username}, frame_id={frame_id}")
         u.inflight = False
+        u.inflight_since_ms = None
+        u.inflight_frame_id = None
         logger.debug(f"VLM response received, marking inflight=False - username={username}")
 
         if decision == Decision.YES:
@@ -271,21 +276,37 @@ class UserStateMachine:
         Time-based housekeeping:
         - If step timeout is reached, reset YES streak and re-arm timeout.
           (Does not advance or fail the step in today's simple design.)
+        - If VLM request timeout is reached (1 second), clear inflight flag.
         """
         u = self._get_or_create_user(username)
-        if u.state != UserState.WORKING or not u.step_rt:
+        if u.state != UserState.WORKING:
             return
 
         now = self._now_ms()
-        if now >= u.step_rt.timeout_at_ms:
-            # Reset debounce and re-arm timeout
-            step = self._current_step_def(u)
-            if not step:
-                return
-            logger.warning(f"[STATE_MACHINE] Step timeout reached - username={username}, step_id={step.id}, resetting consecutive_yes")
-            u.step_rt.yes_consecutive = 0
-            u.step_rt.timeout_at_ms = now + step.timeout_s * 1000
-            logger.debug(f"Timeout re-armed - username={username}, new_timeout_ms={u.step_rt.timeout_at_ms}")
+        
+        # Check for VLM request timeout (1 second)
+        if u.inflight and u.inflight_since_ms is not None:
+            elapsed_ms = now - u.inflight_since_ms
+            if elapsed_ms > 1000:  # 1 second timeout
+                logger.warning(f"[STATE_MACHINE] *** VLM REQUEST TIMEOUT *** - username={username}, frame_id={u.inflight_frame_id}, elapsed_ms={elapsed_ms}")
+                logger.warning(f"[STATE_MACHINE] Clearing inflight flag to allow new requests - username={username}")
+                u.inflight = False
+                u.inflight_since_ms = None
+                u.inflight_frame_id = None
+                # Try to dispatch next frame if available
+                self._maybe_dispatch(u)
+        
+        # Check for step timeout
+        if u.step_rt:
+            if now >= u.step_rt.timeout_at_ms:
+                # Reset debounce and re-arm timeout
+                step = self._current_step_def(u)
+                if not step:
+                    return
+                logger.warning(f"[STATE_MACHINE] Step timeout reached - username={username}, step_id={step.id}, resetting consecutive_yes")
+                u.step_rt.yes_consecutive = 0
+                u.step_rt.timeout_at_ms = now + step.timeout_s * 1000
+                logger.debug(f"Timeout re-armed - username={username}, new_timeout_ms={u.step_rt.timeout_at_ms}")
 
     # ---------- internals
 
@@ -310,15 +331,20 @@ class UserStateMachine:
 
         # Always use the most recent frame for responsiveness
         frame_id = u.frame_buffer[-1]
+        now = self._now_ms()
+        logger.info(f"[STATE_MACHINE] *** SETTING INFLIGHT=TRUE *** - username={u.username}, frame_id={frame_id}, step_id={step.id}")
         u.inflight = True
+        u.inflight_since_ms = now
+        u.inflight_frame_id = frame_id
         logger.info(f"[STATE_MACHINE] Dispatching frame to VLM - username={u.username}, frame_id={frame_id}, step_id={step.id}")
 
         # NOTE: You pass your exact VLM contract elsewhere;
         # this just gives you a single call-site to hook into.
         # idem_key could be derived from frame_id or generated here.
         idem_key = frame_id
-        logger.debug(f"Calling VLM client - frame_id={frame_id}, procedure={u.procedure.id}, idem_key={idem_key}")
+        logger.info(f"[STATE_MACHINE] *** CALLING VLM POST FUNCTION *** - frame_id={frame_id}, procedure={u.procedure.id}, username={u.username}, idem_key={idem_key}")
         self._post_to_vlm(frame_id, u.procedure.id, step_to_dict(step), u.username, idem_key)
+        logger.info(f"[STATE_MACHINE] *** VLM POST FUNCTION RETURNED *** - frame_id={frame_id}, username={u.username}")
 
 
 # ====== Utilities ===================================================================

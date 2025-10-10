@@ -49,24 +49,64 @@ async def vlm_callback(request: Request) -> Dict:
                 detail="Missing required query parameters: user, frame_id"
             )
         
-        # Parse body
-        body = await request.json()
-        decision_str = body.get("decision")
-        logger.debug(f"Body - decision={decision_str}")
-        
-        if not decision_str:
-            logger.warning(f"[VLM_CALLBACK] Missing decision in body")
-            raise HTTPException(status_code=400, detail="Missing decision in body")
-        
-        # Convert to Decision enum
+        # Parse body with new payload structure
+        # DIAGNOSTIC: Log raw body content
         try:
-            decision = Decision(decision_str)
-            logger.debug(f"Decision parsed successfully: {decision.value}")
-        except ValueError:
-            logger.error(f"[VLM_CALLBACK] Invalid decision value: {decision_str}")
+            raw_body = await request.body()
+            logger.info(f"[VLM_CALLBACK] *** RAW BODY *** - content={raw_body.decode('utf-8', errors='replace')}")
+            logger.info(f"[VLM_CALLBACK] *** REQUEST HEADERS *** - content_type={request.headers.get('content-type')}, all_headers={dict(request.headers)}")
+        except Exception as e:
+            logger.error(f"[VLM_CALLBACK] Failed to read raw body - error={str(e)}")
+        
+        # Parse JSON body
+        try:
+            body = await request.json()
+            logger.info(f"[VLM_CALLBACK] *** PARSED BODY *** - body={body}, type={type(body)}")
+        except Exception as e:
+            logger.error(f"[VLM_CALLBACK] Failed to parse JSON body - error={str(e)}")
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {str(e)}")
+        
+        # Extract data from new payload structure
+        payload = body  # already parsed dict
+        data = payload.get("data") or {}
+        result = data.get("result")              # "yes"/"no" for the positive question
+        neg_result = data.get("negative_result") # "yes"/"no" aggregated negatives
+        
+        logger.info(f"[VLM_CALLBACK] *** EXTRACTED FIELDS *** - result={result}, negative_result={neg_result}")
+        
+        # Validate at least one field exists
+        if result is None and neg_result is None:
+            logger.warning(f"[VLM_CALLBACK] Missing result fields in body")
+            raise HTTPException(status_code=400, detail="Missing result fields: expected 'data.result' or 'data.negative_result'")
+        
+        # Use result as the decision (as per new payload structure)
+        decision_str = result
+        logger.info(f"[VLM_CALLBACK] *** DECISION SELECTED *** - decision={decision_str}")
+        
+        # Convert "yes"/"no" to Decision enum
+        try:
+            if decision_str is None:
+                # If result is None, we should have neg_result, but we still need a decision
+                # Default to NO if only neg_result is present
+                logger.warning(f"[VLM_CALLBACK] Result is None, using default Decision.NO")
+                decision = Decision.NO
+            elif decision_str.lower() == "yes":
+                decision = Decision.YES
+                logger.debug(f"Decision parsed: yes -> YES")
+            elif decision_str.lower() == "no":
+                decision = Decision.NO
+                logger.debug(f"Decision parsed: no -> NO")
+            else:
+                logger.error(f"[VLM_CALLBACK] Invalid decision value: {decision_str}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid decision value: {decision_str}. Expected: 'yes' or 'no'"
+                )
+        except AttributeError:
+            logger.error(f"[VLM_CALLBACK] Decision value is not a string: {decision_str}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid decision value: {decision_str}"
+                detail=f"Invalid decision type: expected string, got {type(decision_str)}"
             )
         
         # Pass to state machine

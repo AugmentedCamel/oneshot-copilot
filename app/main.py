@@ -1,4 +1,5 @@
 """Main FastAPI application for Oneshot Copilot."""
+import asyncio
 import logging
 from fastapi import FastAPI
 from app.api import ingest, vlm_callback, procedure
@@ -53,20 +54,55 @@ logger.debug("Registered VLM Callback router")
 logger.info("All API routers registered successfully")
 
 
+# Background task for timeout checking
+_tick_task = None
+
+async def tick_all_users():
+    """Background task that periodically checks for timeouts."""
+    logger.info("Starting background tick task for timeout checking")
+    while True:
+        try:
+            # Get all active users from the state machine
+            from app.api.procedure import machine
+            if machine._users:
+                for username in list(machine._users.keys()):
+                    try:
+                        machine.tick(username)
+                    except Exception as e:
+                        logger.error(f"Error in tick for user {username}: {str(e)}", exc_info=True)
+            
+            # Check every 100ms for responsive timeout detection
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            logger.error(f"Error in tick_all_users background task: {str(e)}", exc_info=True)
+            await asyncio.sleep(1.0)
+
 @app.on_event("startup")
 async def startup_event():
-    """Log startup event."""
+    """Log startup event and start background tasks."""
+    global _tick_task
     logger.info("=" * 60)
     logger.info("APPLICATION STARTUP COMPLETE")
+    logger.info("Starting background timeout checker...")
+    _tick_task = asyncio.create_task(tick_all_users())
+    logger.info("Background timeout checker started")
     logger.info("Oneshot Copilot is ready to accept requests")
     logger.info("=" * 60)
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Log shutdown event."""
+    """Log shutdown event and cancel background tasks."""
+    global _tick_task
     logger.info("=" * 60)
     logger.info("APPLICATION SHUTDOWN")
+    if _tick_task:
+        logger.info("Cancelling background timeout checker...")
+        _tick_task.cancel()
+        try:
+            await _tick_task
+        except asyncio.CancelledError:
+            logger.info("Background timeout checker cancelled")
     logger.info("=" * 60)
 
 

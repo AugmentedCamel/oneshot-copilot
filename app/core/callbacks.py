@@ -88,34 +88,35 @@ async def post_to_vlm_callback(
         username: Username
         idem_key: Idempotency key
     """
-    logger.info(f"[CALLBACK] post_to_vlm - username={username}, frame_id={frame_id}, procedure={procedure_id}, step_id={step_def.get('id')}")
+    logger.info(f"[CALLBACK] *** ASYNC TASK STARTED *** post_to_vlm - username={username}, frame_id={frame_id}, procedure={procedure_id}, step_id={step_def.get('id')}")
     try:
         # Retrieve frame bytes from storage
         logger.debug(f"[CALLBACK] Retrieving frame from storage - frame_id={frame_id}")
         frame_bytes = get_frame(frame_id)
         if not frame_bytes:
-            logger.error(f"[CALLBACK] Frame not found in storage - frame_id={frame_id}")
+            logger.error(f"[CALLBACK] CRITICAL: Frame not found in storage - frame_id={frame_id}")
             return
         logger.debug(f"[CALLBACK] Frame retrieved successfully - frame_id={frame_id}, size={len(frame_bytes)} bytes")
         
         # Build webhook URL with query parameters
+        # Note: SELF_URL should be base URL only (e.g., http://localhost:8000)
         webhook_url = (
-            f"{settings.SELF_URL}/vlm/callback"
+            f"{settings.SELF_URL.rstrip('/')}/vlm/callback"
             f"?user={username}"
             f"&procedure_id={procedure_id}"
             f"&step_id={step_def['id']}"
             f"&frame_id={frame_id}"
             f"&idem={idem_key}"
         )
-        logger.debug(f"[CALLBACK] Webhook URL constructed: {webhook_url}")
+        logger.info(f"[CALLBACK] Webhook URL constructed: {webhook_url}")
         
         # Extract question and negatives from step definition
         question = step_def["positives"][0]
         negatives = step_def["negatives"]
-        logger.debug(f"[CALLBACK] VLM request params - question={question}, negatives_count={len(negatives)}")
+        logger.info(f"[CALLBACK] VLM request params - question='{question}', negatives={negatives}")
         
         # Send to VLM
-        logger.info(f"[CALLBACK] Dispatching to VLM service - frame_id={frame_id}, vlm_url={settings.VLM_URL}")
+        logger.info(f"[CALLBACK] *** SENDING TO VLM *** - frame_id={frame_id}, vlm_url={settings.VLM_URL}")
         await post_to_vlm_multipart(
             file_bytes=frame_bytes,
             question=question,
@@ -123,9 +124,9 @@ async def post_to_vlm_callback(
             webhook_url=webhook_url,
             vlm_url=settings.VLM_URL
         )
-        logger.info(f"[CALLBACK] VLM dispatch successful - frame_id={frame_id}")
+        logger.info(f"[CALLBACK] *** VLM DISPATCH COMPLETED *** - frame_id={frame_id}")
     except Exception as e:
-        logger.error(f"[CALLBACK] Failed to send frame to VLM - frame_id={frame_id}, username={username}, error={str(e)}", exc_info=True)
+        logger.error(f"[CALLBACK] *** CRITICAL ERROR *** Failed to send frame to VLM - frame_id={frame_id}, username={username}, error={str(e)}", exc_info=True)
 
 
 # Synchronous wrappers for callbacks (state machine uses sync callbacks)
@@ -144,4 +145,9 @@ def on_progress_sync(username: str, procedure_id: str, from_step: Optional[int],
 def post_to_vlm_sync(frame_id: str, procedure_id: str, step_def: Dict, username: str, idem_key: str) -> None:
     """Synchronous wrapper for post_to_vlm_callback."""
     logger.debug(f"[CALLBACK] post_to_vlm_sync wrapper called - creating async task")
-    asyncio.create_task(post_to_vlm_callback(frame_id, procedure_id, step_def, username, idem_key))
+    logger.debug(f"[CALLBACK] Task context - frame_id={frame_id}, username={username}, procedure={procedure_id}, step={step_def.get('id')}")
+    try:
+        task = asyncio.create_task(post_to_vlm_callback(frame_id, procedure_id, step_def, username, idem_key))
+        logger.debug(f"[CALLBACK] Async task created successfully - task={task}")
+    except Exception as e:
+        logger.error(f"[CALLBACK] CRITICAL: Failed to create async task - frame_id={frame_id}, error={str(e)}", exc_info=True)

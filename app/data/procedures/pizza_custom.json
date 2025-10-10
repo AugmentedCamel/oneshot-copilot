@@ -7,48 +7,39 @@
       "id": 1,
       "name": "Show pizza dough",
       "positives": [
-        "A plain pizza base or dough is clearly visible on a flat surface."
+        "A plain pizza base or dough is clearly visible on a flat surface. Only answer with [yes] or [no]"
       ],
       "negatives": [
-        "No pizza base or dough is visible.",
-        "Toppings are already on the base.",
-        "The scene does not contain a pizza or dough."
       ],
       "timeout_s": 20,
       "debounce": {
-        "consecutive_yes": 2
+        "consecutive_yes": 3
       }
     },
     {
       "id": 2,
       "name": "Add mushrooms",
       "positives": [
-        "Mushroom slices are visible on top of the pizza base."
+        "Mushroom slices are visible on top of the pizza base. Only answer with [yes] or [no]"
       ],
       "negatives": [
-        "No mushrooms are visible on the pizza.",
-        "Only other toppings are visible (but no mushrooms).",
-        "The scene does not contain a pizza."
       ],
       "timeout_s": 20,
       "debounce": {
-        "consecutive_yes": 2
+        "consecutive_yes": 3
       }
     },
     {
       "id": 3,
       "name": "Add chilli peppers",
       "positives": [
-        "Chilli peppers (fresh or sliced) are visible on top of the pizza."
+        "Chilli peppers (fresh or sliced) are visible on top of the pizza. Only answer with [yes] or [no]"
       ],
       "negatives": [
-        "No chilli peppers are visible on the pizza.",
-        "Only other toppings are visible (but no chilli peppers).",
-        "The scene does not contain a pizza."
       ],
       "timeout_s": 20,
       "debounce": {
-        "consecutive_yes": 2
+        "consecutive_yes": 3
       }
     }
   ]
