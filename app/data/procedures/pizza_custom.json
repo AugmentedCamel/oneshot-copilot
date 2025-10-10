@@ -1,0 +1,55 @@
+{
+  "id": "pizza_custom@v1",
+  "name": "Make a Custom Pizza",
+  "version": 1,
+  "steps": [
+    {
+      "id": 1,
+      "name": "Show pizza dough",
+      "positives": [
+        "A plain pizza base or dough is clearly visible on a flat surface."
+      ],
+      "negatives": [
+        "No pizza base or dough is visible.",
+        "Toppings are already on the base.",
+        "The scene does not contain a pizza or dough."
+      ],
+      "timeout_s": 20,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 2,
+      "name": "Add mushrooms",
+      "positives": [
+        "Mushroom slices are visible on top of the pizza base."
+      ],
+      "negatives": [
+        "No mushrooms are visible on the pizza.",
+        "Only other toppings are visible (but no mushrooms).",
+        "The scene does not contain a pizza."
+      ],
+      "timeout_s": 20,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 3,
+      "name": "Add chilli peppers",
+      "positives": [
+        "Chilli peppers (fresh or sliced) are visible on top of the pizza."
+      ],
+      "negatives": [
+        "No chilli peppers are visible on the pizza.",
+        "Only other toppings are visible (but no chilli peppers).",
+        "The scene does not contain a pizza."
+      ],
+      "timeout_s": 20,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    }
+  ]
+}

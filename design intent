@@ -1,0 +1,119 @@
+oneshot copilot - A copilot that helps users do procedures.
+
+Input = frames (received via webhook) FAST API server /ingest
+Input = client messages FAST API  server / startstream { username: and procedure: }
+
+Procedures: hardcoded JSON files, we start with 2 different pizza's, with 5 steps
+
+Procedure example:
+{
+  "id": "pizza_custom@v1",
+  "name": "Make a Custom Pizza",
+  "version": 1,
+  "steps": [
+    {
+      "id": 1,
+      "name": "Show pizza dough",
+      "positives": [
+        "A plain pizza base or dough is clearly visible on a flat surface."
+      ],
+      "negatives": [
+        "No pizza base or dough is visible.",
+        "Toppings are already on the base.",
+        "The scene does not contain a pizza or dough."
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 2 }
+    },
+    {
+      "id": 2,
+      "name": "Add mushrooms",
+      "positives": [
+        "Mushroom slices are visible on top of the pizza base."
+      ],
+      "negatives": [
+        "No mushrooms are visible on the pizza.",
+        "Only other toppings are visible (but no mushrooms).",
+        "The scene does not contain a pizza."
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 2 }
+    },
+    {
+      "id": 3,
+      "name": "Add chilli peppers",
+      "positives": [
+        "Chilli peppers (fresh or sliced) are visible on top of the pizza."
+      ],
+      "negatives": [
+        "No chilli peppers are visible on the pizza.",
+        "Only other toppings are visible (but no chilli peppers).",
+        "The scene does not contain a pizza."
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 2 }
+    }
+  ]
+}
+
+
+
+Statemachine: a user can have main states of being idle or working, if working a procedure is now ongoing. A procedure is loaded into the statemachine and the user should follow the steps. Based on the VLM responses we change where the user is in the procedure.
+
+Userstates are per username, messages from the client are also received for each user, like start this procedure.
+
+Onframe, If a frame is received we check for which user, if that user has an ongoing procedure we check which step it its. and get the prompt. The prompt along with the image are send to the VLM and we wait for a response. All frames received while we are waiting will be added to a buffer. We only send one frame to the VLM at the same time. If the frame returns we check first handle the response.
+
+
+Output:
+Based on userstate it will send a prompt from the procedure along with the latest image to a CV node.
+CV node endpoint:
+localhost:8080/async_analyze
+jsonfile:
+image + prompt + negative prompt + webhook endpoint where to receive the response
+
+Here is an example
+const step = {
+  id: 2,
+  name: "Add mushrooms",
+  positives: [
+    "Mushroom slices are visible on top of the pizza base."
+  ],
+  negatives: [
+    "No mushrooms are visible on the pizza.",
+    "Only other toppings are visible (but no mushrooms).",
+    "The scene does not contain a pizza."
+  ]
+};
+
+const form = new FormData();
+form.append("file", fileBuffer, { filename: "image.jpg", contentType: "image/jpeg" });
+form.append("question", step.positives[0]); // ✅ exactly from the JSON
+form.append("negative_questions", JSON.stringify(step.negatives));
+form.append(
+  "webhook_url",
+  `${SELF_URL}/vlm/callback?user=${username}&procedure_id=pizza_custom@v1&step_id=${step.id}&frame_id=${frameId}`
+);
+
+await fetch(`${VLM_URL}/analyze_async`, {
+  method: "POST",
+  body: form,
+});
+
+
+Input: Response handeling: an endpoint with FAST API. the VLM will send the response of the frame back to the oneshot copilot.
+now we handle the response. For each step I want a debounce, so I need 2 or 3 times "yes" to confirm that this step was a yes.
+if this step was a yes, we get a progress step action event, this event is a method so I can later add stuff on things to do int this action. In the future we will have multiple actions, like error detected. For now when progress step happens we want to progress the statemachine for this user to go to the next step. And I want to send feedback to the client.
+
+Output: Feedback to client, the client will have a webhook listening for updates, It expects a username and text. the text for the next step will be: "progress". the client will have endpoints per action, so /progress_step and /on_step
+
+ENDPOINTS
+The url will be: https://normally-fluent-anemone.ngrok-free.app but you can put it in the .env file as MENTRA_URL
+we will also have the VLM_URL and SELF_URL (that is used to send to the vlm)
+
+EVENT: progress step (explained above)
+EVENT: on step (I want to send a message to the client feedback that will send the step title as text)
+
+
+State machine:
+

@@ -1,0 +1,1 @@
+"""Core logic for Oneshot Copilot."""
