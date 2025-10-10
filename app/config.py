@@ -1,6 +1,13 @@
 """Configuration settings for Oneshot Copilot."""
 from pydantic_settings import BaseSettings
 
+# ============================================================================
+# VERBOSE LOGGING FLAG
+# Set to True to enable detailed debug logging throughout the application.
+# Set to False to minimize logging output to only warnings and errors.
+# ============================================================================
+VERBOSE_LOGGING = True
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""

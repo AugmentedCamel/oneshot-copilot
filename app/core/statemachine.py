@@ -5,6 +5,9 @@ from enum import Enum
 from typing import Callable, Deque, Dict, List, Optional, Tuple
 from collections import deque
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ====== Public types & callbacks =====================================================
@@ -92,11 +95,13 @@ class UserStateMachine:
         post_to_vlm: PostToVLMFn,
         max_frames_per_user: int = 10,
     ):
+        logger.info("Initializing UserStateMachine")
         self._users: Dict[str, UserSession] = {}
         self._on_step = on_step
         self._on_progress = on_progress_step
         self._post_to_vlm = post_to_vlm
         self._max_frames = max_frames_per_user
+        logger.debug(f"StateMachine config: max_frames_per_user={max_frames_per_user}")
 
     # ---------- helpers
 
@@ -115,10 +120,12 @@ class UserStateMachine:
 
     def _get_or_create_user(self, username: str) -> UserSession:
         if username not in self._users:
+            logger.debug(f"Creating new user session: username={username}")
             self._users[username] = UserSession(
                 username=username,
                 frame_buffer=deque(maxlen=self._max_frames),
             )
+            logger.info(f"User session created: username={username}, max_frames={self._max_frames}")
         return self._users[username]
 
     def _current_step_def(self, u: UserSession) -> Optional[StepDef]:
@@ -133,6 +140,7 @@ class UserStateMachine:
         Abort any existing work and start fresh on step 0.
         Emits: on_step
         """
+        logger.info(f"[STATE_MACHINE] Starting procedure - username={username}, procedure={procedure.id}, steps={len(procedure.steps)}")
         u = self._get_or_create_user(username)
         now = self._now_ms()
         u.state = UserState.WORKING
@@ -142,24 +150,37 @@ class UserStateMachine:
         u.step_rt = self._init_step_rt(step, now) if step else None
         u.inflight = False
         u.frame_buffer.clear()
+        logger.debug(f"Procedure state initialized - username={username}, initial_step={step.id if step else None}")
         if step:
+            logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={step.id}, step_name={step.name}")
             self._on_step(username, procedure.id, step.id, step.name)
 
     def pause(self, username: str) -> None:
+        logger.info(f"[STATE_MACHINE] Pausing procedure - username={username}")
         u = self._get_or_create_user(username)
         if u.state == UserState.WORKING:
             u.state = UserState.PAUSED
+            logger.debug(f"Procedure paused - username={username}, previous_state=WORKING")
+        else:
+            logger.warning(f"Pause requested but user not in WORKING state - username={username}, state={u.state.value}")
 
     def resume(self, username: str) -> None:
+        logger.info(f"[STATE_MACHINE] Resuming procedure - username={username}")
         u = self._get_or_create_user(username)
         if u.state == UserState.PAUSED:
             u.state = UserState.WORKING
+            logger.debug(f"Procedure resumed - username={username}, new_state=WORKING")
             self._maybe_dispatch(u)
+        else:
+            logger.warning(f"Resume requested but user not in PAUSED state - username={username}, state={u.state.value}")
 
     def abort(self, username: str) -> None:
+        logger.info(f"[STATE_MACHINE] Aborting procedure - username={username}")
         u = self._get_or_create_user(username)
+        previous_state = u.state.value
         u.state = UserState.ABORTED
         u.inflight = False
+        logger.debug(f"Procedure aborted - username={username}, previous_state={previous_state}")
 
     def status(self, username: str) -> Dict:
         u = self._get_or_create_user(username)
@@ -179,14 +200,17 @@ class UserStateMachine:
         """
         Add a frame to the per-user buffer and maybe dispatch to VLM.
         """
+        logger.debug(f"[STATE_MACHINE] Ingesting frame - username={username}, frame_id={frame_id}")
         u = self._get_or_create_user(username)
         if u.state != UserState.WORKING:
+            logger.debug(f"Frame ignored (user not WORKING) - username={username}, state={u.state.value}")
             return
         if len(u.frame_buffer) == u.frame_buffer.maxlen:
-            # drop oldest (deque does this automatically on append)
-            pass
+            oldest_frame = u.frame_buffer[0] if u.frame_buffer else None
+            logger.debug(f"Frame buffer full, dropping oldest - username={username}, dropping={oldest_frame}")
         u.frame_buffer.append(frame_id)
         u.last_frame_at_ms = self._now_ms()
+        logger.debug(f"Frame added to buffer - username={username}, buffer_size={len(u.frame_buffer)}")
         self._maybe_dispatch(u)
 
     def vlm_decision(self, username: str, frame_id: str, decision: Decision) -> None:
@@ -196,20 +220,25 @@ class UserStateMachine:
         - YES increments consecutive counter; others reset it.
         - On target YES count, progress step and emit progress + on_step/complete.
         """
+        logger.info(f"[STATE_MACHINE] Processing VLM decision - username={username}, frame_id={frame_id}, decision={decision.value}")
         u = self._get_or_create_user(username)
         if u.state != UserState.WORKING or not u.procedure or not u.step_rt:
+            logger.debug(f"VLM decision ignored - username={username}, state={u.state.value}, has_procedure={u.procedure is not None}, has_step_rt={u.step_rt is not None}")
             return
 
         # Guard: consider stale if step id mismatches (frame_id staleness left to transport)
         step = self._current_step_def(u)
         if not step or u.step_rt.id != step.id:
+            logger.warning(f"VLM decision stale - username={username}, step_mismatch (current={step.id if step else None}, runtime={u.step_rt.id})")
             return
 
         # Mark inflight done for this user
         u.inflight = False
+        logger.debug(f"VLM response received, marking inflight=False - username={username}")
 
         if decision == Decision.YES:
             u.step_rt.yes_consecutive += 1
+            logger.debug(f"YES decision - username={username}, consecutive_yes={u.step_rt.yes_consecutive}/{step.debounce_consecutive_yes}")
             if u.step_rt.yes_consecutive >= step.debounce_consecutive_yes:
                 # Progress to next step (or complete)
                 from_id = step.id
@@ -218,16 +247,21 @@ class UserStateMachine:
                     u.current_index = next_index
                     next_step = self._current_step_def(u)
                     u.step_rt = self._init_step_rt(next_step, self._now_ms())
+                    logger.info(f"[STATE_MACHINE] Step progression - username={username}, from_step={from_id}, to_step={next_step.id}")
                     self._on_progress(u.username, u.procedure.id, from_id, next_step.id)
+                    logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={next_step.id}, step_name={next_step.name}")
                     self._on_step(u.username, u.procedure.id, next_step.id, next_step.name)
                 else:
                     # Completed
+                    logger.info(f"[STATE_MACHINE] Procedure completed - username={username}, final_step={from_id}")
                     self._on_progress(u.username, u.procedure.id, from_id, None)
                     u.state = UserState.COMPLETED
                     u.step_rt = None
         else:
             # Any non-YES resets
+            previous_count = u.step_rt.yes_consecutive
             u.step_rt.yes_consecutive = 0
+            logger.debug(f"{decision.value} decision - username={username}, reset consecutive_yes from {previous_count} to 0")
 
         # Continue processing if more frames
         self._maybe_dispatch(u)
@@ -248,8 +282,10 @@ class UserStateMachine:
             step = self._current_step_def(u)
             if not step:
                 return
+            logger.warning(f"[STATE_MACHINE] Step timeout reached - username={username}, step_id={step.id}, resetting consecutive_yes")
             u.step_rt.yes_consecutive = 0
             u.step_rt.timeout_at_ms = now + step.timeout_s * 1000
+            logger.debug(f"Timeout re-armed - username={username}, new_timeout_ms={u.step_rt.timeout_at_ms}")
 
     # ---------- internals
 
@@ -262,21 +298,26 @@ class UserStateMachine:
           - buffer not empty
         """
         if u.state != UserState.WORKING or u.inflight:
+            logger.debug(f"Dispatch skipped - username={u.username}, state={u.state.value}, inflight={u.inflight}")
             return
         step = self._current_step_def(u)
         if not step or not u.procedure:
+            logger.debug(f"Dispatch skipped (no step/procedure) - username={u.username}")
             return
         if not u.frame_buffer:
+            logger.debug(f"Dispatch skipped (empty buffer) - username={u.username}")
             return
 
         # Always use the most recent frame for responsiveness
         frame_id = u.frame_buffer[-1]
         u.inflight = True
+        logger.info(f"[STATE_MACHINE] Dispatching frame to VLM - username={u.username}, frame_id={frame_id}, step_id={step.id}")
 
         # NOTE: You pass your exact VLM contract elsewhere;
         # this just gives you a single call-site to hook into.
         # idem_key could be derived from frame_id or generated here.
         idem_key = frame_id
+        logger.debug(f"Calling VLM client - frame_id={frame_id}, procedure={u.procedure.id}, idem_key={idem_key}")
         self._post_to_vlm(frame_id, u.procedure.id, step_to_dict(step), u.username, idem_key)
 
 
