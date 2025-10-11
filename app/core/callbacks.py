@@ -6,6 +6,7 @@ from typing import Dict, Optional
 from app.config import settings
 from app.core.vlm_client import post_to_vlm_multipart
 from app.core.frame_store import get_frame
+from app.models.state import Decision
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ async def post_to_vlm_callback(
     idem_key: str
 ) -> None:
     """
-    Dispatch frame to VLM for analysis.
+    Dispatch frame to VLM for synchronous analysis via /qa endpoint.
     
     Args:
         frame_id: Frame identifier
@@ -90,6 +91,9 @@ async def post_to_vlm_callback(
     """
     logger.info(f"[CALLBACK] *** ASYNC TASK STARTED *** post_to_vlm - username={username}, frame_id={frame_id}, procedure={procedure_id}, step_id={step_def.get('id')}")
     try:
+        # Import state machine here to avoid circular import
+        from app.api.procedure import machine
+        
         # Retrieve frame bytes from storage
         logger.debug(f"[CALLBACK] Retrieving frame from storage - frame_id={frame_id}")
         frame_bytes = get_frame(frame_id)
@@ -98,35 +102,50 @@ async def post_to_vlm_callback(
             return
         logger.debug(f"[CALLBACK] Frame retrieved successfully - frame_id={frame_id}, size={len(frame_bytes)} bytes")
         
-        # Build webhook URL with query parameters
-        # Note: SELF_URL should be base URL only (e.g., http://localhost:8000)
-        webhook_url = (
-            f"{settings.SELF_URL.rstrip('/')}/vlm/callback"
-            f"?user={username}"
-            f"&procedure_id={procedure_id}"
-            f"&step_id={step_def['id']}"
-            f"&frame_id={frame_id}"
-            f"&idem={idem_key}"
-        )
-        logger.info(f"[CALLBACK] Webhook URL constructed: {webhook_url}")
-        
         # Extract question and negatives from step definition
         question = step_def["positives"][0]
         negatives = step_def["negatives"]
         logger.info(f"[CALLBACK] VLM request params - question='{question}', negatives={negatives}")
         
-        # Send to VLM
-        logger.info(f"[CALLBACK] *** SENDING TO VLM *** - frame_id={frame_id}, vlm_url={settings.VLM_URL}")
-        await post_to_vlm_multipart(
+        # Send to VLM /qa endpoint (synchronous response)
+        logger.info(f"[CALLBACK] *** SENDING TO VLM /qa *** - frame_id={frame_id}, vlm_url={settings.VLM_URL}")
+        response_json = await post_to_vlm_multipart(
             file_bytes=frame_bytes,
             question=question,
             negatives=negatives,
-            webhook_url=webhook_url,
             vlm_url=settings.VLM_URL
         )
-        logger.info(f"[CALLBACK] *** VLM DISPATCH COMPLETED *** - frame_id={frame_id}")
+        logger.info(f"[CALLBACK] *** VLM RESPONSE RECEIVED *** - frame_id={frame_id}")
+        logger.debug(f"[CALLBACK] Response data: {response_json}")
+        
+        # Parse the response structure (same as webhook callback)
+        data = response_json.get("data") or {}
+        result = data.get("result")  # "yes"/"no" for the positive question
+        neg_result = data.get("negative_result")  # "yes"/"no" aggregated negatives
+        
+        logger.info(f"[CALLBACK] *** EXTRACTED FIELDS *** - result={result}, negative_result={neg_result}")
+        
+        # Convert "yes"/"no" to Decision enum
+        if result is None:
+            logger.warning(f"[CALLBACK] Result is None, using default Decision.NO")
+            decision = Decision.NO
+        elif result.lower() == "yes":
+            decision = Decision.YES
+            logger.debug(f"[CALLBACK] Decision parsed: yes -> YES")
+        elif result.lower() == "no":
+            decision = Decision.NO
+            logger.debug(f"[CALLBACK] Decision parsed: no -> NO")
+        else:
+            logger.error(f"[CALLBACK] Invalid decision value: {result}")
+            decision = Decision.NO
+        
+        # Pass decision to state machine
+        logger.info(f"[CALLBACK] Processing decision - username={username}, frame_id={frame_id}, decision={decision.value}")
+        machine.vlm_decision(username, frame_id, decision)
+        logger.info(f"[CALLBACK] *** VLM PROCESSING COMPLETED *** - frame_id={frame_id}, decision={decision.value}")
+        
     except Exception as e:
-        logger.error(f"[CALLBACK] *** CRITICAL ERROR *** Failed to send frame to VLM - frame_id={frame_id}, username={username}, error={str(e)}", exc_info=True)
+        logger.error(f"[CALLBACK] *** CRITICAL ERROR *** Failed to process VLM response - frame_id={frame_id}, username={username}, error={str(e)}", exc_info=True)
 
 
 # Synchronous wrappers for callbacks (state machine uses sync callbacks)

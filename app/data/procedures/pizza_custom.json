@@ -9,8 +9,6 @@
       "positives": [
         "A plain pizza base or dough is clearly visible on a flat surface. Only answer with [yes] or [no]"
       ],
-      "negatives": [
-      ],
       "timeout_s": 20,
       "debounce": {
         "consecutive_yes": 3
@@ -22,8 +20,6 @@
       "positives": [
         "Mushroom slices are visible on top of the pizza base. Only answer with [yes] or [no]"
       ],
-      "negatives": [
-      ],
       "timeout_s": 20,
       "debounce": {
         "consecutive_yes": 3
@@ -34,8 +30,6 @@
       "name": "Add chilli peppers",
       "positives": [
         "Chilli peppers (fresh or sliced) are visible on top of the pizza. Only answer with [yes] or [no]"
-      ],
-      "negatives": [
       ],
       "timeout_s": 20,
       "debounce": {

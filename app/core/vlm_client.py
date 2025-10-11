@@ -11,53 +11,53 @@ async def post_to_vlm_multipart(
     file_bytes: bytes,
     question: str,
     negatives: list[str],
-    webhook_url: str,
     vlm_url: str
 ) -> Dict:
     """
-    Send multipart request to VLM service.
+    Send multipart request to VLM /qa endpoint.
     
-    This matches the exact format from the JavaScript reference:
+    Sends synchronous request to /qa endpoint:
     - file: image bytes with filename and content-type
     - question: first positive question from step
-    - negative_questions: JSON stringified array of negatives
-    - webhook_url: callback URL with query parameters
+    - negative_questions: JSON stringified array of negatives (optional)
     
     Args:
         file_bytes: Image file bytes
         question: The question to ask (step.positives[0])
         negatives: List of negative questions (step.negatives)
-        webhook_url: Full webhook URL with query params
         vlm_url: Base URL of VLM service
         
     Returns:
-        Response JSON from VLM service
+        Response JSON from VLM service containing the answer
     """
-    logger.info(f"[VLM_CLIENT] Sending request to VLM - url={vlm_url}/analyze_async")
+    logger.info(f"[VLM_CLIENT] Sending request to VLM - url={vlm_url}/qa")
     logger.debug(f"[VLM_CLIENT] Request details - question={question}, negatives_count={len(negatives)}, file_size={len(file_bytes)} bytes")
-    logger.debug(f"[VLM_CLIENT] Webhook URL: {webhook_url}")
     
-    # Prepare form data - exact format as JavaScript
+    # Prepare form data for /qa endpoint
     data = {
         "question": question,
-        "negative_questions": json.dumps(negatives),
-        "webhook_url": webhook_url,
     }
-    logger.debug(f"[VLM_CLIENT] Form data prepared - negatives={negatives}")
     
-    # Prepare file upload - matches JavaScript fileBuffer format
+    # Add negative questions if provided
+    if negatives:
+        data["negative_questions"] = json.dumps(negatives)
+        logger.debug(f"[VLM_CLIENT] Form data prepared with negatives={negatives}")
+    else:
+        logger.debug(f"[VLM_CLIENT] Form data prepared without negatives")
+    
+    # Prepare file upload
     files = {
         "file": ("image.jpg", file_bytes, "image/jpeg")
     }
     logger.debug(f"[VLM_CLIENT] File prepared - filename=image.jpg, content_type=image/jpeg")
     
-    # Send POST request to /analyze_async endpoint
+    # Send POST request to /qa endpoint (synchronous response)
     try:
         logger.debug(f"[VLM_CLIENT] Opening HTTP client connection...")
         async with httpx.AsyncClient(timeout=30.0) as client:
-            logger.debug(f"[VLM_CLIENT] Sending POST request to {vlm_url}/analyze_async...")
+            logger.debug(f"[VLM_CLIENT] Sending POST request to {vlm_url}/qa...")
             response = await client.post(
-                f"{vlm_url}/analyze_async",
+                f"{vlm_url}/qa",
                 data=data,
                 files=files
             )

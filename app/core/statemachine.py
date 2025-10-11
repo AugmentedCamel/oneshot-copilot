@@ -361,17 +361,23 @@ def step_to_dict(s: StepDef) -> Dict:
 
 
 def procedure_from_json(j: Dict) -> ProcedureDef:
-    steps = [
-        StepDef(
+    logger.debug(f"[PROCEDURE_PARSE] Starting to parse procedure JSON - id={j.get('id')}")
+    steps = []
+    for st in j["steps"]:
+        # Check if negatives field exists
+        has_negatives = "negatives" in st
+        negatives_value = st.get("negatives", [])
+        logger.debug(f"[PROCEDURE_PARSE] Parsing step {st['id']}: has_negatives={has_negatives}, using_default={'[]' if not has_negatives else 'from_json'}")
+        
+        steps.append(StepDef(
             id=st["id"],
             name=st["name"],
             positives=st["positives"],
-            negatives=st["negatives"],
+            negatives=negatives_value,
             timeout_s=st["timeout_s"],
             debounce_consecutive_yes=st["debounce"]["consecutive_yes"],
-        )
-        for st in j["steps"]
-    ]
+        ))
+    logger.info(f"[PROCEDURE_PARSE] Successfully parsed {len(steps)} steps from JSON")
     return ProcedureDef(
         id=j["id"],
         name=j["name"],
