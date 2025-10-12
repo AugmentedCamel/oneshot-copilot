@@ -5,7 +5,7 @@ import httpx
 from typing import Dict, Optional
 from app.config import settings
 from app.core.vlm_client import post_to_vlm_multipart
-from app.core.frame_store import get_frame
+from app.core.frame_store import get_frame, clear_frame
 from app.models.state import Decision
 
 logger = logging.getLogger(__name__)
@@ -96,9 +96,19 @@ async def post_to_vlm_callback(
         
         # Retrieve frame bytes from storage
         logger.debug(f"[CALLBACK] Retrieving frame from storage - frame_id={frame_id}")
+        from app.core.frame_store import get_store_size
+        logger.info(f"[CALLBACK] *** FRAME STORE STATE *** - username={username}, frame_id={frame_id}, store_size={get_store_size()}")
         frame_bytes = get_frame(frame_id)
         if not frame_bytes:
-            logger.error(f"[CALLBACK] CRITICAL: Frame not found in storage - frame_id={frame_id}")
+            logger.error(f"[CALLBACK] *** CRITICAL: Frame not found in storage *** - username={username}, frame_id={frame_id}, store_size={get_store_size()}")
+            logger.error(f"[CALLBACK] This likely means the frame was already processed and cleared, but still exists in user's buffer")
+            # Mark inflight as False so system can continue
+            machine_user = machine._users.get(username)
+            if machine_user:
+                logger.info(f"[CALLBACK] Clearing inflight flag for user - username={username}")
+                machine_user.inflight = False
+                machine_user.inflight_since_ms = None
+                machine_user.inflight_frame_id = None
             return
         logger.debug(f"[CALLBACK] Frame retrieved successfully - frame_id={frame_id}, size={len(frame_bytes)} bytes")
         
@@ -143,6 +153,10 @@ async def post_to_vlm_callback(
         logger.info(f"[CALLBACK] Processing decision - username={username}, frame_id={frame_id}, decision={decision.value}")
         machine.vlm_decision(username, frame_id, decision)
         logger.info(f"[CALLBACK] *** VLM PROCESSING COMPLETED *** - frame_id={frame_id}, decision={decision.value}")
+        
+        # Clear frame from storage after successful processing
+        clear_frame(frame_id)
+        logger.debug(f"[CALLBACK] Frame cleared from storage - frame_id={frame_id}")
         
     except Exception as e:
         logger.error(f"[CALLBACK] *** CRITICAL ERROR *** Failed to process VLM response - frame_id={frame_id}, username={username}, error={str(e)}", exc_info=True)

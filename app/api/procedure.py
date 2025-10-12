@@ -1,5 +1,7 @@
 """Procedure control API endpoints."""
+import json
 import logging
+import os
 from fastapi import APIRouter, HTTPException
 from typing import Dict
 from app.config import settings
@@ -120,3 +122,75 @@ async def abort(username: str) -> Dict:
     machine.abort(username)
     logger.info(f"[ABORT] Success - username={username}")
     return {"ok": True}
+
+
+@router.get("/procedure")
+async def get_procedure_status(username: str) -> Dict:
+    """
+    Get current procedure status with steps for a user.
+    
+    Args:
+        username: Username (query parameter)
+        
+    Returns:
+        JSON with username, id, name, version, and steps with status
+        
+    Raises:
+        404: User has no active procedure
+        
+    Special case:
+        If username="dummy", returns the debug dummy.json file for frontend testing.
+        This file can be manually edited and changes are reflected immediately (no caching).
+    """
+    # Add diagnostic logging
+    logger.info(f"[GET_PROCEDURE_STATUS] ========== ENDPOINT HIT ==========")
+    logger.info(f"[GET_PROCEDURE_STATUS] Received username: '{username}' (type: {type(username).__name__})")
+    logger.info(f"[GET_PROCEDURE_STATUS] Is 'dummy'? {username == 'dummy'}")
+    
+    # DEBUG ENDPOINT: Return dummy.json file for testing
+    if username == "dummy":
+        logger.info("[GET_PROCEDURE_STATUS] DEBUG endpoint accessed - returning dummy.json")
+        dummy_file_path = "app/data/user_status/dummy.json"
+        
+        try:
+            # Read file on every request (no caching) for immediate testing
+            if not os.path.exists(dummy_file_path):
+                logger.error(f"[GET_PROCEDURE_STATUS] DEBUG file not found: {dummy_file_path}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Debug file not found: {dummy_file_path}. Please create it first."
+                )
+            
+            with open(dummy_file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Remove the _comment field from response if present
+            if '_comment' in data:
+                del data['_comment']
+            
+            logger.info(f"[GET_PROCEDURE_STATUS] DEBUG Success - returned dummy.json with {len(data.get('steps', []))} steps")
+            return data
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"[GET_PROCEDURE_STATUS] DEBUG Invalid JSON in {dummy_file_path}: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Invalid JSON in debug file: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"[GET_PROCEDURE_STATUS] DEBUG Failed to read {dummy_file_path}: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to read debug file: {str(e)}"
+            )
+    
+    # Normal behavior for non-debug users
+    logger.info(f"[GET_PROCEDURE_STATUS] Request received - username={username}")
+    status_data = machine.get_procedure_status(username)
+    
+    if not status_data:
+        logger.warning(f"[GET_PROCEDURE_STATUS] No active procedure - username={username}")
+        raise HTTPException(status_code=404, detail=f"No active procedure for user: {username}")
+    
+    logger.info(f"[GET_PROCEDURE_STATUS] Success - username={username}, procedure={status_data.get('id')}")
+    return status_data

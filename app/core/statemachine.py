@@ -9,6 +9,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Import status service for file persistence
+try:
+    from app.services.status_service import save_user_status
+    _status_service_available = True
+except ImportError:
+    logger.warning("Status service not available - status files will not be saved")
+    _status_service_available = False
+
 
 # ====== Public types & callbacks =====================================================
 
@@ -135,6 +143,21 @@ class UserStateMachine:
             return None
         return u.procedure.steps[u.current_index]
 
+    def _save_status_file(self, username: str) -> None:
+        """
+        Save the current procedure status to a JSON file.
+        Called automatically when status changes.
+        """
+        if not _status_service_available:
+            return
+        
+        try:
+            status_data = self.get_procedure_status(username)
+            if status_data:
+                save_user_status(username, status_data)
+        except Exception as e:
+            logger.error(f"Failed to save status file - username={username}, error: {str(e)}", exc_info=True)
+
     # ---------- public API (call these from your endpoints)
 
     def start_procedure(self, username: str, procedure: ProcedureDef) -> None:
@@ -156,6 +179,8 @@ class UserStateMachine:
         if step:
             logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={step.id}, step_name={step.name}")
             self._on_step(username, procedure.id, step.id, step.name)
+            # Save initial status
+            self._save_status_file(username)
 
     def pause(self, username: str) -> None:
         logger.info(f"[STATE_MACHINE] Pausing procedure - username={username}")
@@ -183,6 +208,8 @@ class UserStateMachine:
         u.state = UserState.ABORTED
         u.inflight = False
         logger.debug(f"Procedure aborted - username={username}, previous_state={previous_state}")
+        # Save status after abort
+        self._save_status_file(username)
 
     def status(self, username: str) -> Dict:
         u = self._get_or_create_user(username)
@@ -196,6 +223,47 @@ class UserStateMachine:
             "yes_consecutive": u.step_rt.yes_consecutive if u.step_rt else 0,
             "inflight": u.inflight,
             "buffer_len": len(u.frame_buffer),
+        }
+
+    def get_procedure_status(self, username: str) -> Optional[Dict]:
+        """
+        Generate procedure status JSON for a user including username field.
+        Returns None if user has no active procedure.
+        
+        Args:
+            username: Username to get status for
+            
+        Returns:
+            Dictionary with username, id, name, version, and steps with status
+        """
+        u = self._get_or_create_user(username)
+        if not u.procedure:
+            return None
+        
+        steps_with_status = []
+        for idx, step in enumerate(u.procedure.steps):
+            # Determine status based on current_index and state
+            if u.state == UserState.COMPLETED:
+                status = "done"
+            elif idx < u.current_index:
+                status = "done"
+            elif idx == u.current_index and u.state == UserState.WORKING:
+                status = "in_progress"
+            else:
+                status = "todo"
+            
+            steps_with_status.append({
+                "id": step.id,
+                "name": step.name,
+                "status": status
+            })
+        
+        return {
+            "username": username,
+            "id": u.procedure.id,
+            "name": u.procedure.name,
+            "version": u.procedure.version,
+            "steps": steps_with_status
         }
 
     def ingest_frame(self, username: str, frame_id: str) -> None:
@@ -256,12 +324,16 @@ class UserStateMachine:
                     self._on_progress(u.username, u.procedure.id, from_id, next_step.id)
                     logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={next_step.id}, step_name={next_step.name}")
                     self._on_step(u.username, u.procedure.id, next_step.id, next_step.name)
+                    # Save status after step progression
+                    self._save_status_file(username)
                 else:
                     # Completed
                     logger.info(f"[STATE_MACHINE] Procedure completed - username={username}, final_step={from_id}")
                     self._on_progress(u.username, u.procedure.id, from_id, None)
                     u.state = UserState.COMPLETED
                     u.step_rt = None
+                    # Save status after completion
+                    self._save_status_file(username)
         else:
             # Any non-YES resets
             previous_count = u.step_rt.yes_consecutive
@@ -326,11 +398,12 @@ class UserStateMachine:
             logger.debug(f"Dispatch skipped (no step/procedure) - username={u.username}")
             return
         if not u.frame_buffer:
-            logger.debug(f"Dispatch skipped (empty buffer) - username={u.username}")
+            logger.info(f"[STATE_MACHINE] Dispatch skipped - username={u.username}, reason=empty_buffer, inflight={u.inflight}")
             return
 
         # Always use the most recent frame for responsiveness
         frame_id = u.frame_buffer[-1]
+        logger.info(f"[STATE_MACHINE] *** FRAME BUFFER STATE *** - username={u.username}, buffer_size={len(u.frame_buffer)}, latest_frame={frame_id}, inflight_frame={u.inflight_frame_id}")
         now = self._now_ms()
         logger.info(f"[STATE_MACHINE] *** SETTING INFLIGHT=TRUE *** - username={u.username}, frame_id={frame_id}, step_id={step.id}")
         u.inflight = True

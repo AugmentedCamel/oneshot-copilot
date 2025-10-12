@@ -45,13 +45,13 @@ logger.info("FastAPI application created: Oneshot Copilot v1.0.0")
 
 # Include routers
 logger.debug("Registering API routers...")
-app.include_router(procedure.router, tags=["Procedure Control"])
-logger.debug("Registered Procedure Control router")
-app.include_router(ingest.router, tags=["Frame Ingestion"])
-logger.debug("Registered Frame Ingestion router")
-app.include_router(vlm_callback.router, tags=["VLM Callback"])
-logger.debug("Registered VLM Callback router")
-logger.info("All API routers registered successfully")
+app.include_router(procedure.router, prefix="/api", tags=["Procedure Control"])
+logger.debug("Registered Procedure Control router at /api")
+app.include_router(ingest.router, prefix="/api", tags=["Frame Ingestion"])
+logger.debug("Registered Frame Ingestion router at /api")
+app.include_router(vlm_callback.router, prefix="/api", tags=["VLM Callback"])
+logger.debug("Registered VLM Callback router at /api")
+logger.info("All API routers registered successfully with /api prefix")
 
 
 # Background task for timeout checking
