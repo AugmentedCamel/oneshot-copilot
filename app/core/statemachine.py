@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Import status service for file persistence
 try:
-    from app.services.status_service import save_user_status
+    from app.services.status_service import save_user_status, delete_user_status
     _status_service_available = True
 except ImportError:
     logger.warning("Status service not available - status files will not be saved")
@@ -166,6 +166,9 @@ class UserStateMachine:
         Emits: on_step
         """
         logger.info(f"[STATE_MACHINE] Starting procedure - username={username}, procedure={procedure.id}, steps={len(procedure.steps)}")
+        # Delete any existing status file before starting new procedure
+        if _status_service_available:
+            delete_user_status(username, procedure.id)
         u = self._get_or_create_user(username)
         now = self._now_ms()
         u.state = UserState.WORKING
@@ -259,6 +262,7 @@ class UserStateMachine:
             })
         
         return {
+            "_comment": "DEBUG FILE: This file is for frontend testing. Edit this manually and call GET /api/procedure?username=dummy to see your changes immediately.",
             "username": username,
             "id": u.procedure.id,
             "name": u.procedure.name,
@@ -303,11 +307,12 @@ class UserStateMachine:
             return
 
         # Mark inflight done for this user
+        # IMPORTANT: Keep inflight_frame_id set to prevent redispatch of same frame
         logger.info(f"[STATE_MACHINE] *** SETTING INFLIGHT=FALSE *** - username={username}, frame_id={frame_id}")
         u.inflight = False
         u.inflight_since_ms = None
-        u.inflight_frame_id = None
-        logger.debug(f"VLM response received, marking inflight=False - username={username}")
+        # DO NOT clear inflight_frame_id here - it's used for deduplication in _maybe_dispatch
+        logger.debug(f"VLM response received, marking inflight=False - username={username}, keeping inflight_frame_id={u.inflight_frame_id} for deduplication")
 
         if decision == Decision.YES:
             u.step_rt.yes_consecutive += 1
@@ -320,7 +325,9 @@ class UserStateMachine:
                     u.current_index = next_index
                     next_step = self._current_step_def(u)
                     u.step_rt = self._init_step_rt(next_step, self._now_ms())
-                    logger.info(f"[STATE_MACHINE] Step progression - username={username}, from_step={from_id}, to_step={next_step.id}")
+                    # Clear inflight_frame_id when progressing to new step (old frame no longer relevant)
+                    u.inflight_frame_id = None
+                    logger.info(f"[STATE_MACHINE] Step progression - username={username}, from_step={from_id}, to_step={next_step.id}, cleared_inflight_frame")
                     self._on_progress(u.username, u.procedure.id, from_id, next_step.id)
                     logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={next_step.id}, step_name={next_step.name}")
                     self._on_step(u.username, u.procedure.id, next_step.id, next_step.name)
@@ -332,6 +339,7 @@ class UserStateMachine:
                     self._on_progress(u.username, u.procedure.id, from_id, None)
                     u.state = UserState.COMPLETED
                     u.step_rt = None
+                    u.inflight_frame_id = None
                     # Save status after completion
                     self._save_status_file(username)
         else:
@@ -389,6 +397,7 @@ class UserStateMachine:
           - not inflight
           - step exists
           - buffer not empty
+          - frame hasn't already been dispatched
         """
         if u.state != UserState.WORKING or u.inflight:
             logger.debug(f"Dispatch skipped - username={u.username}, state={u.state.value}, inflight={u.inflight}")
@@ -404,10 +413,21 @@ class UserStateMachine:
         # Always use the most recent frame for responsiveness
         frame_id = u.frame_buffer[-1]
         logger.info(f"[STATE_MACHINE] *** FRAME BUFFER STATE *** - username={u.username}, buffer_size={len(u.frame_buffer)}, latest_frame={frame_id}, inflight_frame={u.inflight_frame_id}")
+        
+        # CRITICAL: Prevent redispatching the same frame (buffer deduplication)
+        if frame_id == u.inflight_frame_id:
+            logger.warning(f"[STATE_MACHINE] *** SKIPPING REDISPATCH *** - username={u.username}, frame_id={frame_id} already processed, removing from buffer")
+            # Remove the processed frame from buffer to allow new frames
+            if frame_id in u.frame_buffer:
+                # Remove all instances of this frame_id from the buffer
+                u.frame_buffer = deque([fid for fid in u.frame_buffer if fid != frame_id], maxlen=u.frame_buffer.maxlen)
+                logger.info(f"[STATE_MACHINE] Frame removed from buffer - username={u.username}, frame_id={frame_id}, new_buffer_size={len(u.frame_buffer)}")
+            return
         now = self._now_ms()
-        logger.info(f"[STATE_MACHINE] *** SETTING INFLIGHT=TRUE *** - username={u.username}, frame_id={frame_id}, step_id={step.id}")
+        logger.info(f"[STATE_MACHINE] *** SETTING INFLIGHT=TRUE *** - username={u.username}, frame_id={frame_id}, step_id={step.id}, previous_frame={u.inflight_frame_id}")
         u.inflight = True
         u.inflight_since_ms = now
+        # Update inflight_frame_id to the new frame being dispatched
         u.inflight_frame_id = frame_id
         logger.info(f"[STATE_MACHINE] Dispatching frame to VLM - username={u.username}, frame_id={frame_id}, step_id={step.id}")
 

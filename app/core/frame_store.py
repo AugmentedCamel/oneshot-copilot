@@ -28,14 +28,29 @@ def get_frame(frame_id: str) -> Optional[bytes]:
     return frame_bytes
 
 
-def clear_frame(frame_id: str) -> None:
-    """Remove frame from storage."""
+def clear_frame(frame_id: str) -> bool:
+    """
+    Remove frame from storage.
+    
+    Args:
+        frame_id: Frame identifier to clear
+        
+    Returns:
+        True if frame was found and cleared, False if already cleared
+    """
+    # Guard against redundant clear requests
+    if frame_id not in _frame_store:
+        logger.warning(f"[FRAME_STORE] Ignoring redundant clear request - frame_id={frame_id} not in store")
+        return False
+        
     logger.debug(f"[FRAME_STORE] Clearing frame - frame_id={frame_id}")
     removed = _frame_store.pop(frame_id, None)
     if removed:
-        logger.debug(f"[FRAME_STORE] Frame cleared - frame_id={frame_id}, remaining_frames={len(_frame_store)}")
+        logger.info(f"[FRAME_STORE] ✓ Frame cleared - frame_id={frame_id}, remaining_frames={len(_frame_store)}")
+        return True
     else:
-        logger.debug(f"[FRAME_STORE] Frame not found for clearing - frame_id={frame_id}")
+        logger.warning(f"[FRAME_STORE] Frame not found for clearing - frame_id={frame_id}")
+        return False
 
 
 def get_store_size() -> int:

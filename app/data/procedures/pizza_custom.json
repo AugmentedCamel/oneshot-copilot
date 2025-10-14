@@ -7,7 +7,7 @@
       "id": 1,
       "name": "Show pizza dough",
       "positives": [
-        "A plain pizza base or dough is clearly visible on a flat surface. Only answer with [yes] or [no]"
+        "A plain and empty pizza base or dough is clearly visible. Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
@@ -16,9 +16,9 @@
     },
     {
       "id": 2,
-      "name": "Add mushrooms",
+      "name": "Add lettuce",
       "positives": [
-        "Mushroom slices are visible on top of the pizza base. Only answer with [yes] or [no]"
+        "Green Lettuce leaves are visible on top of the pizza base. Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
@@ -27,13 +27,59 @@
     },
     {
       "id": 3,
-      "name": "Add chilli peppers",
+      "name": "Add red tomatoes",
       "positives": [
-        "Chilli peppers (fresh or sliced) are visible on top of the pizza. Only answer with [yes] or [no]"
+        "Do you clearly see Red cherry tomatoes, visible on top of green Lettuce. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": {
+        "consecutive_yes": 4
+      }
+    },
+    {
+      "id": 4,
+      "name": "Add black olives",
+      "positives": [
+        "At least multiple black olives are visible on top of green Lettuce. Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
         "consecutive_yes": 3
+      }
+    },
+    {
+      "id": 5,
+      "name": "Add exactly 3 parts of pumpkin",
+      "positives": [
+        "Exactly three parts of orange pumpkin are visible on top of an unprepared pizza. Only answer with [yes] or [no]"
+      ],
+      "negatives": ["exactly 2 parts of orange pumpkin are visible on top of an unprepared pizza. Only answer with [yes] or [no]"],
+      "timeout_s": 20,
+      "debounce": {
+        "consecutive_yes": 3
+      }
+    },
+
+    {
+      "id": 6,
+      "name": "Add some Jalapeno peppers",
+      "positives": [
+        "At least multiple green jalapeno pepper slices are visible on top of an unprepared pizza. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": {
+        "consecutive_yes": 3
+      }
+    },
+    {
+      "id": 7,
+      "name": "Add multiple cheddar slices",
+      "positives": [
+        "At least multiple yellow or orange, squared cheddar cheese slices are visible, Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": {
+        "consecutive_yes": 2
       }
     }
   ]

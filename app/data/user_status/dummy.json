@@ -1,12 +1,12 @@
 {
   "_comment": "DEBUG FILE: This file is for frontend testing. Edit this manually and call GET /api/procedure?username=dummy to see your changes immediately.",
-  "username": "mikameel",
+  "username": "dummy",
   "id": "pizza_custom@v1",
   "name": "Make a Custom Pizza",
   "version": 1,
   "steps": [
     { "id": 1, "name": "Show pizza dough", "status": "done" },
-    { "id": 2, "name": "Add mushrooms", "status": "done" },
-    { "id": 3, "name": "Add chilli peppers", "status": "in_progress" }
+    { "id": 2, "name": "Add mushrooms", "status": "in_progress" },
+    { "id": 3, "name": "Add chilli peppers", "status": "todo" }
   ]
 }

@@ -1,0 +1,407 @@
+{
+  "id": "debug_objects_gestures@v1",
+  "name": "Debug Object and Gesture Detection",
+  "version": 1,
+  "steps": [
+    {
+      "id": 1,
+      "name": "Find a TV",
+      "positives": ["Do you see a television (TV) in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 2,
+      "name": "Find a speaker",
+      "positives": ["Do you see a speaker in the frame (e.g., bookshelf speaker, smart speaker)? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 3,
+      "name": "Find a remote control",
+      "positives": ["Do you see a TV remote or similar remote control in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 4,
+      "name": "Find a set of keys",
+      "positives": ["Do you see a set of keys (keyring with one or more keys)? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 5,
+      "name": "Hold a pen",
+      "positives": ["Is a person holding a pen in their hand? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 6,
+      "name": "Hold a smartphone",
+      "positives": ["Is a person holding a smartphone in their hand? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 7,
+      "name": "Show a laptop",
+      "positives": ["Do you see a laptop on a desk or being held? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 8,
+      "name": "Show a keyboard",
+      "positives": ["Do you see a computer keyboard in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 9,
+      "name": "Show a mouse",
+      "positives": ["Do you see a computer mouse in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 10,
+      "name": "Show a monitor",
+      "positives": ["Do you see a computer monitor or display in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 11,
+      "name": "Show a water bottle",
+      "positives": ["Do you see a reusable water bottle or plastic bottle in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 12,
+      "name": "Show a coffee mug",
+      "positives": ["Do you see a coffee mug or cup with a handle? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 13,
+      "name": "Show a book",
+      "positives": ["Do you see a book (closed or open) in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 14,
+      "name": "Show a backpack",
+      "positives": ["Do you see a backpack or rucksack in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 15,
+      "name": "Show a wallet",
+      "positives": ["Do you see a wallet or card holder in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 16,
+      "name": "Show a charging cable",
+      "positives": ["Do you see a USB or phone charging cable in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 17,
+      "name": "Wear sunglasses",
+      "positives": ["Is a person wearing sunglasses on their face or head? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 18,
+      "name": "Wear a hat",
+      "positives": ["Is a person wearing a hat or cap? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 19,
+      "name": "Show shoes",
+      "positives": ["Do you see a pair of shoes in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 20,
+      "name": "Show a potted plant",
+      "positives": ["Do you see a potted plant (indoor plant) in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 21,
+      "name": "Show a door",
+      "positives": ["Do you see a door (open or closed) in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 22,
+      "name": "Show a window",
+      "positives": ["Do you see a window (with or without curtains) in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 23,
+      "name": "Show a bicycle",
+      "positives": ["Do you see a bicycle in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 20,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 24,
+      "name": "Show a car",
+      "positives": ["Do you see a car in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 20,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 25,
+      "name": "Give a thumbs up",
+      "positives": ["Is a person showing a thumbs up gesture? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 26,
+      "name": "Show three fingers",
+      "positives": ["Is a person holding up three fingers? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 27,
+      "name": "Show a QR code",
+      "positives": ["Is a QR code clearly visible in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 28,
+      "name": "Show a barcode",
+      "positives": ["Is a barcode clearly visible in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 29,
+      "name": "Show paper with text",
+      "positives": ["Do you see a sheet of paper with printed or handwritten text? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 30,
+      "name": "Show a red object",
+      "positives": ["Is there a clearly red object in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 31,
+      "name": "Show a green object",
+      "positives": ["Is there a clearly green object in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 32,
+      "name": "Show a blue object",
+      "positives": ["Is there a clearly blue object in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 33,
+      "name": "Show a screwdriver",
+      "positives": ["Do you see a screwdriver (any type) in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 34,
+      "name": "Show a hammer",
+      "positives": ["Do you see a hammer in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 15,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 35,
+      "name": "Show scissors",
+      "positives": ["Do you see a pair of scissors in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 36,
+      "name": "Show adhesive tape",
+      "positives": ["Do you see a roll of adhesive tape in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 37,
+      "name": "Show a fork",
+      "positives": ["Do you see a fork in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 38,
+      "name": "Show a spoon",
+      "positives": ["Do you see a spoon in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 39,
+      "name": "Show a knife",
+      "positives": ["Do you see a kitchen knife in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    },
+    {
+      "id": 40,
+      "name": "Show a toothbrush",
+      "positives": ["Do you see a toothbrush in the frame? only respond with: yes/no"],
+      "negatives": [],
+      "timeout_s": 12,
+      "debounce": {
+        "consecutive_yes": 2
+      }
+    }
+  ]
+}

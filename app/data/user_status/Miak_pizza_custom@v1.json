@@ -1,0 +1,44 @@
+{
+  "_comment": "DEBUG FILE: This file is for frontend testing. Edit this manually and call GET /api/procedure?username=dummy to see your changes immediately.",
+  "username": "Miak",
+  "id": "pizza_custom@v1",
+  "name": "Make a Custom Pizza",
+  "version": 1,
+  "steps": [
+    {
+      "id": 1,
+      "name": "Show pizza dough",
+      "status": "in_progress"
+    },
+    {
+      "id": 2,
+      "name": "Add lettuce",
+      "status": "todo"
+    },
+    {
+      "id": 3,
+      "name": "Add black olives",
+      "status": "todo"
+    },
+    {
+      "id": 4,
+      "name": "Add red tomatoes",
+      "status": "todo"
+    },
+    {
+      "id": 5,
+      "name": "Add multiple cheddar slices",
+      "status": "todo"
+    },
+    {
+      "id": 6,
+      "name": "Add some Jalapeno peppers",
+      "status": "todo"
+    },
+    {
+      "id": 7,
+      "name": "Add exactly 3 parts of pumpkin",
+      "status": "todo"
+    }
+  ]
+}

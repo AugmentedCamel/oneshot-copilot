@@ -106,6 +106,15 @@ async def shutdown_event():
     logger.info("=" * 60)
 
 
+@app.middleware("http")
+async def log_requests(request, call_next):
+    """Log all incoming requests for debugging."""
+    logger.info(f"[REQUEST] {request.method} {request.url.path} - Query: {dict(request.query_params)}")
+    response = await call_next(request)
+    logger.info(f"[RESPONSE] Status: {response.status_code}")
+    return response
+
+
 @app.get("/")
 async def root():
     """Root endpoint."""

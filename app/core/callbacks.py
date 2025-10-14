@@ -126,27 +126,41 @@ async def post_to_vlm_callback(
             vlm_url=settings.VLM_URL
         )
         logger.info(f"[CALLBACK] *** VLM RESPONSE RECEIVED *** - frame_id={frame_id}")
+        logger.info(f"[CALLBACK] *** RAW RESPONSE *** - response_json={response_json}, type={type(response_json)}")
         logger.debug(f"[CALLBACK] Response data: {response_json}")
         
-        # Parse the response structure (same as webhook callback)
-        data = response_json.get("data") or {}
-        result = data.get("result")  # "yes"/"no" for the positive question
-        neg_result = data.get("negative_result")  # "yes"/"no" aggregated negatives
+        # Parse the response structure - handle both nested and flat formats
+        # Try nested format first: {"data": {"result": "yes"}}
+        data = response_json.get("data") if isinstance(response_json, dict) else None
+        if data and isinstance(data, dict):
+            result = data.get("result")
+            neg_result = data.get("negative_result")
+            logger.info(f"[CALLBACK] *** USING NESTED FORMAT *** - data={data}")
+        else:
+            # Fall back to flat format: {"result": "yes"}
+            result = response_json.get("result") if isinstance(response_json, dict) else None
+            neg_result = response_json.get("negative_result") if isinstance(response_json, dict) else None
+            logger.info(f"[CALLBACK] *** USING FLAT FORMAT *** - result={result}, neg_result={neg_result}")
         
-        logger.info(f"[CALLBACK] *** EXTRACTED FIELDS *** - result={result}, negative_result={neg_result}")
+        logger.info(f"[CALLBACK] *** EXTRACTED FIELDS *** - result={result}, negative_result={neg_result}, result_type={type(result)}")
         
-        # Convert "yes"/"no" to Decision enum
+        # Convert "yes"/"no" to Decision enum with robust string handling
         if result is None:
             logger.warning(f"[CALLBACK] Result is None, using default Decision.NO")
             decision = Decision.NO
-        elif result.lower() == "yes":
-            decision = Decision.YES
-            logger.debug(f"[CALLBACK] Decision parsed: yes -> YES")
-        elif result.lower() == "no":
-            decision = Decision.NO
-            logger.debug(f"[CALLBACK] Decision parsed: no -> NO")
+        elif isinstance(result, str):
+            result_clean = result.lower().strip()
+            if result_clean in ("yes", "true", "1"):
+                decision = Decision.YES
+                logger.info(f"[CALLBACK] ✓ Decision parsed: '{result}' -> YES")
+            elif result_clean in ("no", "false", "0"):
+                decision = Decision.NO
+                logger.info(f"[CALLBACK] Decision parsed: '{result}' -> NO")
+            else:
+                logger.error(f"[CALLBACK] Unexpected VLM result: '{result}', defaulting to NO")
+                decision = Decision.NO
         else:
-            logger.error(f"[CALLBACK] Invalid decision value: {result}")
+            logger.error(f"[CALLBACK] Invalid decision type: {type(result)}, value={result}, defaulting to NO")
             decision = Decision.NO
         
         # Pass decision to state machine
