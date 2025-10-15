@@ -2,6 +2,7 @@
 import logging
 from fastapi import APIRouter, UploadFile, Form, File, HTTPException
 from typing import Dict
+from time import perf_counter
 from app.core.frame_store import store_frame
 from app.api.procedure import machine
 
@@ -32,6 +33,9 @@ async def ingest(
     Returns:
         Success response
     """
+    # [TIMING] Record API endpoint entry time
+    api_start = perf_counter()
+    logger.info(f"[⏱️ TIMING] Frame ingest API called - username={username}, frame_id={frame_id}")
     logger.info(f"[INGEST] Request received - username={username}, frame_id={frame_id}, filename={file.filename}")
     try:
         # Read and store frame bytes
@@ -47,6 +51,11 @@ async def ingest(
         # Add frame to user's buffer (may trigger VLM dispatch)
         logger.debug(f"Adding frame to user buffer: username={username}, frame_id={frame_id}")
         machine.ingest_frame(username, frame_id)
+        
+        # [TIMING] Calculate API processing time
+        api_end = perf_counter()
+        api_duration = (api_end - api_start) * 1000  # Convert to ms
+        logger.info(f"[⏱️ TIMING] Frame ingest API completed - username={username}, frame_id={frame_id}, duration={api_duration:.2f}ms")
         logger.info(f"[INGEST] Success - username={username}, frame_id={frame_id}, size={frame_size} bytes")
         
         return {

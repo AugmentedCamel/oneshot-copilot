@@ -3,6 +3,7 @@ import asyncio
 import logging
 import httpx
 from typing import Dict, Optional
+from time import perf_counter
 from app.config import settings
 from app.core.vlm_client import post_to_vlm_multipart
 from app.core.frame_store import get_frame, clear_frame
@@ -89,6 +90,9 @@ async def post_to_vlm_callback(
         username: Username
         idem_key: Idempotency key
     """
+    # [TIMING] Record callback start time
+    callback_start = perf_counter()
+    logger.info(f"[⏱️ TIMING] VLM callback started - username={username}, frame_id={frame_id}")
     logger.info(f"[CALLBACK] *** ASYNC TASK STARTED *** post_to_vlm - username={username}, frame_id={frame_id}, procedure={procedure_id}, step_id={step_def.get('id')}")
     try:
         # Import state machine here to avoid circular import
@@ -166,6 +170,11 @@ async def post_to_vlm_callback(
         # Pass decision to state machine
         logger.info(f"[CALLBACK] Processing decision - username={username}, frame_id={frame_id}, decision={decision.value}")
         machine.vlm_decision(username, frame_id, decision)
+        
+        # [TIMING] Calculate total callback duration
+        callback_end = perf_counter()
+        callback_duration = (callback_end - callback_start) * 1000  # Convert to ms
+        logger.info(f"[⏱️ TIMING] VLM callback completed - username={username}, frame_id={frame_id}, total_duration={callback_duration:.2f}ms")
         logger.info(f"[CALLBACK] *** VLM PROCESSING COMPLETED *** - frame_id={frame_id}, decision={decision.value}")
         
         # Clear frame from storage after successful processing
@@ -173,6 +182,10 @@ async def post_to_vlm_callback(
         logger.debug(f"[CALLBACK] Frame cleared from storage - frame_id={frame_id}")
         
     except Exception as e:
+        # [TIMING] Log duration even on error
+        callback_end = perf_counter()
+        callback_duration = (callback_end - callback_start) * 1000
+        logger.error(f"[⏱️ TIMING] VLM callback failed - username={username}, frame_id={frame_id}, duration={callback_duration:.2f}ms")
         logger.error(f"[CALLBACK] *** CRITICAL ERROR *** Failed to process VLM response - frame_id={frame_id}, username={username}, error={str(e)}", exc_info=True)
 
 

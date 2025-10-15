@@ -2,10 +2,12 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Deque, Dict, List, Optional, Tuple
-from collections import deque
+from typing import Callable, Dict, List, Optional, Tuple
 import time
 import logging
+
+# Import perf_counter for high-precision timing
+from time import perf_counter
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +85,12 @@ class UserSession:
     inflight: bool = False
     inflight_since_ms: Optional[int] = None  # Track when inflight was set
     inflight_frame_id: Optional[str] = None  # Track which frame is inflight
-    frame_buffer: Deque[str] = field(default_factory=lambda: deque(maxlen=10))  # frame_ids
+    buffered_frame: Optional[str] = None  # Single buffered frame (overwrite semantics)
     last_frame_at_ms: Optional[int] = None
+    # Timing instrumentation for VLM request performance tracking
+    frame_ingest_time: Optional[float] = None  # When frame was ingested (perf_counter)
+    vlm_dispatch_time: Optional[float] = None  # When frame was dispatched to VLM (perf_counter)
+    vlm_response_time: Optional[float] = None  # When VLM response was received (perf_counter)
 
 
 # ====== State Machine ================================================================
@@ -93,7 +99,7 @@ class UserStateMachine:
     """
     A per-user controller with:
       - single in-flight VLM job
-      - ring buffer of frames
+      - single frame buffer (overwrites on new frame when inflight)
       - YES-only progression (2 consecutive YES by default)
       - timeout resets debounce (keeps the same step)
     """
@@ -103,15 +109,14 @@ class UserStateMachine:
         on_step: OnStepFn,
         on_progress_step: ProgressStepFn,
         post_to_vlm: PostToVLMFn,
-        max_frames_per_user: int = 10,
+        max_frames_per_user: int = 10,  # Kept for backward compatibility but unused
     ):
         logger.info("Initializing UserStateMachine")
         self._users: Dict[str, UserSession] = {}
         self._on_step = on_step
         self._on_progress = on_progress_step
         self._post_to_vlm = post_to_vlm
-        self._max_frames = max_frames_per_user
-        logger.debug(f"StateMachine config: max_frames_per_user={max_frames_per_user}")
+        logger.debug("StateMachine initialized with single-frame buffering")
 
     # ---------- helpers
 
@@ -131,11 +136,8 @@ class UserStateMachine:
     def _get_or_create_user(self, username: str) -> UserSession:
         if username not in self._users:
             logger.debug(f"Creating new user session: username={username}")
-            self._users[username] = UserSession(
-                username=username,
-                frame_buffer=deque(maxlen=self._max_frames),
-            )
-            logger.info(f"User session created: username={username}, max_frames={self._max_frames}")
+            self._users[username] = UserSession(username=username)
+            logger.info(f"User session created: username={username}")
         return self._users[username]
 
     def _current_step_def(self, u: UserSession) -> Optional[StepDef]:
@@ -177,7 +179,7 @@ class UserStateMachine:
         step = self._current_step_def(u)
         u.step_rt = self._init_step_rt(step, now) if step else None
         u.inflight = False
-        u.frame_buffer.clear()
+        u.buffered_frame = None
         logger.debug(f"Procedure state initialized - username={username}, initial_step={step.id if step else None}")
         if step:
             logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={step.id}, step_name={step.name}")
@@ -225,7 +227,7 @@ class UserStateMachine:
             "current_step_name": step.name if step else None,
             "yes_consecutive": u.step_rt.yes_consecutive if u.step_rt else 0,
             "inflight": u.inflight,
-            "buffer_len": len(u.frame_buffer),
+            "has_buffered_frame": u.buffered_frame is not None,
         }
 
     def get_procedure_status(self, username: str) -> Optional[Dict]:
@@ -272,20 +274,37 @@ class UserStateMachine:
 
     def ingest_frame(self, username: str, frame_id: str) -> None:
         """
-        Add a frame to the per-user buffer and maybe dispatch to VLM.
+        Handle incoming frame:
+        - If no request is in-flight, dispatch immediately
+        - If request is in-flight, buffer this frame (overwriting any previous buffered frame)
         """
+        # [TIMING] Record frame ingest time
+        ingest_time = perf_counter()
+        
         logger.debug(f"[STATE_MACHINE] Ingesting frame - username={username}, frame_id={frame_id}")
         u = self._get_or_create_user(username)
         if u.state != UserState.WORKING:
             logger.debug(f"Frame ignored (user not WORKING) - username={username}, state={u.state.value}")
             return
-        if len(u.frame_buffer) == u.frame_buffer.maxlen:
-            oldest_frame = u.frame_buffer[0] if u.frame_buffer else None
-            logger.debug(f"Frame buffer full, dropping oldest - username={username}, dropping={oldest_frame}")
-        u.frame_buffer.append(frame_id)
+        
+        # [TIMING] Store ingest timestamp
+        u.frame_ingest_time = ingest_time
+        logger.info(f"[⏱️ TIMING] Frame ingested - username={username}, frame_id={frame_id}")
+        
         u.last_frame_at_ms = self._now_ms()
-        logger.debug(f"Frame added to buffer - username={username}, buffer_size={len(u.frame_buffer)}")
-        self._maybe_dispatch(u)
+        
+        # If VLM request is in flight, buffer the frame (overwriting previous buffer)
+        if u.inflight:
+            previous_buffered = u.buffered_frame
+            u.buffered_frame = frame_id
+            if previous_buffered:
+                logger.info(f"[STATE_MACHINE] Frame buffer overwritten - username={username}, old_frame={previous_buffered}, new_frame={frame_id}")
+            else:
+                logger.info(f"[STATE_MACHINE] Frame buffered while inflight - username={username}, frame_id={frame_id}")
+        else:
+            # No request in flight, dispatch immediately
+            logger.debug(f"[STATE_MACHINE] No inflight request, dispatching immediately - username={username}, frame_id={frame_id}")
+            self._maybe_dispatch(u, frame_id)
 
     def vlm_decision(self, username: str, frame_id: str, decision: Decision) -> None:
         """
@@ -294,8 +313,28 @@ class UserStateMachine:
         - YES increments consecutive counter; others reset it.
         - On target YES count, progress step and emit progress + on_step/complete.
         """
+        # [TIMING] Record VLM response time
+        response_time = perf_counter()
+        
         logger.info(f"[STATE_MACHINE] Processing VLM decision - username={username}, frame_id={frame_id}, decision={decision.value}")
         u = self._get_or_create_user(username)
+        
+        # [TIMING] Calculate and log timing metrics
+        if u.frame_ingest_time and u.vlm_dispatch_time:
+            u.vlm_response_time = response_time
+            
+            # Calculate durations
+            dispatch_latency = (u.vlm_dispatch_time - u.frame_ingest_time) * 1000  # ms
+            vlm_processing_time = (u.vlm_response_time - u.vlm_dispatch_time) * 1000  # ms
+            total_latency = (u.vlm_response_time - u.frame_ingest_time) * 1000  # ms
+            
+            logger.info(f"[⏱️ TIMING] VLM response received - username={username}, frame_id={frame_id}")
+            logger.info(f"[⏱️ TIMING] ├─ Ingest → Dispatch: {dispatch_latency:.2f}ms")
+            logger.info(f"[⏱️ TIMING] ├─ VLM Processing: {vlm_processing_time:.2f}ms")
+            logger.info(f"[⏱️ TIMING] └─ Total (Ingest → Response): {total_latency:.2f}ms")
+        else:
+            logger.warning(f"[⏱️ TIMING] Incomplete timing data - username={username}, frame_id={frame_id}, has_ingest={u.frame_ingest_time is not None}, has_dispatch={u.vlm_dispatch_time is not None}")
+        
         if u.state != UserState.WORKING or not u.procedure or not u.step_rt:
             logger.debug(f"VLM decision ignored - username={username}, state={u.state.value}, has_procedure={u.procedure is not None}, has_step_rt={u.step_rt is not None}")
             return
@@ -348,8 +387,12 @@ class UserStateMachine:
             u.step_rt.yes_consecutive = 0
             logger.debug(f"{decision.value} decision - username={username}, reset consecutive_yes from {previous_count} to 0")
 
-        # Continue processing if more frames
-        self._maybe_dispatch(u)
+        # Process buffered frame if available
+        if u.buffered_frame:
+            buffered_frame_id = u.buffered_frame
+            u.buffered_frame = None  # Clear buffer before dispatching
+            logger.info(f"[STATE_MACHINE] Processing buffered frame after VLM response - username={username}, buffered_frame={buffered_frame_id}")
+            self._maybe_dispatch(u, buffered_frame_id)
 
     def tick(self, username: str) -> None:
         """
@@ -373,8 +416,12 @@ class UserStateMachine:
                 u.inflight = False
                 u.inflight_since_ms = None
                 u.inflight_frame_id = None
-                # Try to dispatch next frame if available
-                self._maybe_dispatch(u)
+                # Try to dispatch buffered frame if available
+                if u.buffered_frame:
+                    buffered_frame_id = u.buffered_frame
+                    u.buffered_frame = None  # Clear buffer before dispatching
+                    logger.info(f"[STATE_MACHINE] Processing buffered frame after timeout - username={username}, buffered_frame={buffered_frame_id}")
+                    self._maybe_dispatch(u, buffered_frame_id)
         
         # Check for step timeout
         if u.step_rt:
@@ -390,13 +437,13 @@ class UserStateMachine:
 
     # ---------- internals
 
-    def _maybe_dispatch(self, u: UserSession) -> None:
+    def _maybe_dispatch(self, u: UserSession, frame_id: Optional[str] = None) -> None:
         """
-        Send the latest frame to VLM if:
+        Send a frame to VLM if:
           - WORKING
           - not inflight
           - step exists
-          - buffer not empty
+          - frame_id provided or buffered frame available
           - frame hasn't already been dispatched
         """
         if u.state != UserState.WORKING or u.inflight:
@@ -406,24 +453,38 @@ class UserStateMachine:
         if not step or not u.procedure:
             logger.debug(f"Dispatch skipped (no step/procedure) - username={u.username}")
             return
-        if not u.frame_buffer:
-            logger.info(f"[STATE_MACHINE] Dispatch skipped - username={u.username}, reason=empty_buffer, inflight={u.inflight}")
+        
+        # Use provided frame_id, or fall back to buffered frame
+        if frame_id is None:
+            frame_id = u.buffered_frame
+            if frame_id:
+                u.buffered_frame = None  # Clear buffer since we're dispatching it
+                logger.info(f"[STATE_MACHINE] Using buffered frame for dispatch - username={u.username}, frame_id={frame_id}")
+        
+        if not frame_id:
+            logger.debug(f"[STATE_MACHINE] Dispatch skipped - username={u.username}, reason=no_frame_available")
             return
 
-        # Always use the most recent frame for responsiveness
-        frame_id = u.frame_buffer[-1]
-        logger.info(f"[STATE_MACHINE] *** FRAME BUFFER STATE *** - username={u.username}, buffer_size={len(u.frame_buffer)}, latest_frame={frame_id}, inflight_frame={u.inflight_frame_id}")
+        logger.info(f"[STATE_MACHINE] *** FRAME STATE *** - username={u.username}, dispatching_frame={frame_id}, inflight_frame={u.inflight_frame_id}, has_buffered={u.buffered_frame is not None}")
         
-        # CRITICAL: Prevent redispatching the same frame (buffer deduplication)
+        # CRITICAL: Prevent redispatching the same frame
         if frame_id == u.inflight_frame_id:
-            logger.warning(f"[STATE_MACHINE] *** SKIPPING REDISPATCH *** - username={u.username}, frame_id={frame_id} already processed, removing from buffer")
-            # Remove the processed frame from buffer to allow new frames
-            if frame_id in u.frame_buffer:
-                # Remove all instances of this frame_id from the buffer
-                u.frame_buffer = deque([fid for fid in u.frame_buffer if fid != frame_id], maxlen=u.frame_buffer.maxlen)
-                logger.info(f"[STATE_MACHINE] Frame removed from buffer - username={u.username}, frame_id={frame_id}, new_buffer_size={len(u.frame_buffer)}")
+            logger.warning(f"[STATE_MACHINE] *** SKIPPING REDISPATCH *** - username={u.username}, frame_id={frame_id} already processed")
             return
+        
         now = self._now_ms()
+        
+        # [TIMING] Record VLM dispatch time
+        dispatch_time = perf_counter()
+        u.vlm_dispatch_time = dispatch_time
+        
+        # [TIMING] Log time from ingest to dispatch
+        if u.frame_ingest_time:
+            time_to_dispatch = (dispatch_time - u.frame_ingest_time) * 1000  # Convert to ms
+            logger.info(f"[⏱️ TIMING] Dispatching to VLM - username={u.username}, frame_id={frame_id}, time_since_ingest={time_to_dispatch:.2f}ms")
+        else:
+            logger.warning(f"[⏱️ TIMING] Dispatch without ingest timestamp - username={u.username}, frame_id={frame_id}")
+        
         logger.info(f"[STATE_MACHINE] *** SETTING INFLIGHT=TRUE *** - username={u.username}, frame_id={frame_id}, step_id={step.id}, previous_frame={u.inflight_frame_id}")
         u.inflight = True
         u.inflight_since_ms = now

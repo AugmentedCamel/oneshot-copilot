@@ -3,6 +3,7 @@ import json
 import logging
 import httpx
 from typing import Dict
+from time import perf_counter
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +56,24 @@ async def post_to_vlm_multipart(
     try:
         logger.debug(f"[VLM_CLIENT] Opening HTTP client connection...")
         async with httpx.AsyncClient(timeout=30.0) as client:
+            # [TIMING] Record HTTP request start time
+            request_start = perf_counter()
+            logger.info(f"[⏱️ TIMING] Sending HTTP request to VLM - url={vlm_url}/qa")
+            
             logger.debug(f"[VLM_CLIENT] Sending POST request to {vlm_url}/qa...")
             response = await client.post(
                 f"{vlm_url}/qa",
                 data=data,
                 files=files
             )
+            
+            # [TIMING] Record HTTP response time
+            request_end = perf_counter()
+            request_duration = (request_end - request_start) * 1000  # Convert to ms
+            
             logger.debug(f"[VLM_CLIENT] Response received - status_code={response.status_code}")
+            logger.info(f"[⏱️ TIMING] HTTP response received - duration={request_duration:.2f}ms, status={response.status_code}")
+            
             response.raise_for_status()
             response_json = response.json()
             logger.info(f"[VLM_CLIENT] Request successful - status={response.status_code}")
