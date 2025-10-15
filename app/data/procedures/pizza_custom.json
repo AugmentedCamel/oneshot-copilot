@@ -27,9 +27,9 @@
     },
     {
       "id": 3,
-      "name": "Add red tomatoes",
+      "name": "Add ham",
       "positives": [
-        "Do you clearly see Red cherry tomatoes, visible on top of green Lettuce. Only answer with [yes] or [no]"
+        "Do you clearly see slices of ham or bacon, visible on top of green Lettuce. Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
@@ -49,11 +49,10 @@
     },
     {
       "id": 5,
-      "name": "Add exactly 3 parts of pumpkin",
+      "name": "Add chilli red peppers",
       "positives": [
-        "Exactly three parts of orange pumpkin are visible on top of an unprepared pizza. Only answer with [yes] or [no]"
+        "Are there red peppers are visible in the frame? Only answer with [yes] or [no]"
       ],
-      "negatives": ["exactly 2 parts of orange pumpkin are visible on top of an unprepared pizza. Only answer with [yes] or [no]"],
       "timeout_s": 20,
       "debounce": {
         "consecutive_yes": 3
@@ -64,7 +63,7 @@
       "id": 6,
       "name": "Add some Jalapeno peppers",
       "positives": [
-        "At least multiple green jalapeno pepper slices are visible on top of an unprepared pizza. Only answer with [yes] or [no]"
+        "Are At least multiple green jalapeno pepper slices visible on top of an unprepared pizza? Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
@@ -73,9 +72,9 @@
     },
     {
       "id": 7,
-      "name": "Add multiple cheddar slices",
+      "name": "Thumbs up",
       "positives": [
-        "At least multiple yellow or orange, squared cheddar cheese slices are visible, Only answer with [yes] or [no]"
+        "Do you see a hand very clearly doing a thumbs-up or thumbsup gesture?, Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {

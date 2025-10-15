@@ -17,7 +17,7 @@
     },
     {
       "id": 3,
-      "name": "Add red tomatoes",
+      "name": "Add ham",
       "status": "done"
     },
     {
@@ -27,7 +27,7 @@
     },
     {
       "id": 5,
-      "name": "Add exactly 3 parts of pumpkin",
+      "name": "Add chilli red peppers",
       "status": "done"
     },
     {
@@ -37,7 +37,7 @@
     },
     {
       "id": 7,
-      "name": "Add multiple cheddar slices",
+      "name": "Thumbs up",
       "status": "done"
     }
   ]
