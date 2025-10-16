@@ -154,6 +154,10 @@ async def post_to_vlm_callback(
             decision = Decision.NO
         elif isinstance(result, str):
             result_clean = result.lower().strip()
+            # Remove surrounding brackets if present (VLM may return [yes] or [no])
+            if result_clean.startswith('[') and result_clean.endswith(']'):
+                result_clean = result_clean[1:-1].strip()
+            
             if result_clean in ("yes", "true", "1"):
                 decision = Decision.YES
                 logger.info(f"[CALLBACK] ✓ Decision parsed: '{result}' -> YES")
