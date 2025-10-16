@@ -29,6 +29,13 @@ FRAME_QUEUE_SIZE = 10  # Maximum number of frames in queue (bounded)
 # ============================================================================
 METRICS_HISTORY_SIZE = 1000  # Number of metrics to keep in memory
 
+# ============================================================================
+# FRAME STORAGE CONFIGURATION
+# Settings for saving frames to disk for debugging/verification
+# ============================================================================
+SAVE_FRAMES_TO_DISK = False  # Set to True to save all frames to disk
+FRAMES_DIRECTORY = "app/data/frames"  # Directory to save frames
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -39,6 +46,7 @@ class Settings(BaseSettings):
     RTSP_STREAM_URL: str = ""  # Optional RTSP/RTMP stream URL, empty = disabled
     STREAM_USERNAME: str = "stream_user"  # Username for stream-ingested frames
     MAX_FRAMES_PER_USER: int = 10
+    SAVE_FRAMES_TO_DISK: bool = False  # Save frames to disk for debugging/verification
     
     class Config:
         env_file = ".env"

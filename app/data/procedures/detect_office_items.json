@@ -1,0 +1,187 @@
+{
+  "id": "Detect Office Items",
+  "name": "Detect Office Items",
+  "version": 1,
+  "steps": [
+    {
+      "id": 1,
+      "name": "Show desk",
+      "positives": [
+        "A clean office desk surface is clearly visible. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 2,
+      "name": "Detect computer monitor",
+      "positives": [
+        "A computer monitor or laptop screen is visible on or above the desk. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 3,
+      "name": "Detect keyboard",
+      "positives": [
+        "A keyboard is clearly visible in front of a computer or monitor. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 4 }
+    },
+    {
+      "id": 4,
+      "name": "Detect mouse",
+      "positives": [
+        "A computer mouse or touchpad is visible near the keyboard. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 5,
+      "name": "Detect chair",
+      "positives": [
+        "An office chair is visible near the desk or in front of a workstation. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 6,
+      "name": "Detect headphones",
+      "positives": [
+        "Headphones or earbuds are visible on the desk, hanging, or being worn. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 7,
+      "name": "Detect notebook",
+      "positives": [
+        "A paper notebook or notepad is visible on the desk. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 8,
+      "name": "Detect pen",
+      "positives": [
+        "A pen, pencil, or writing utensil is visible near a notebook or on the desk. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 9,
+      "name": "Detect coffee mug",
+      "positives": [
+        "A coffee mug or cup is visible on the desk or nearby. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 10,
+      "name": "Detect water bottle",
+      "positives": [
+        "A reusable water bottle or drinking bottle is visible. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 11,
+      "name": "Detect smartphone",
+      "positives": [
+        "A smartphone or mobile phone is visible on the desk or being held. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 12,
+      "name": "Detect TV or monitor screen",
+      "positives": [
+        "A large TV or secondary display screen is visible in the office environment. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 13,
+      "name": "Detect printer",
+      "positives": [
+        "A printer or multifunction device is visible in the room. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 14,
+      "name": "Detect plant",
+      "positives": [
+        "A green plant or flower pot is visible anywhere in the office area. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 15,
+      "name": "Detect lamp",
+      "positives": [
+        "A desk lamp or standing lamp is visible and turned on or off. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 16,
+      "name": "Detect whiteboard",
+      "positives": [
+        "A whiteboard or flip chart is visible on a wall or stand. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 17,
+      "name": "Detect clock",
+      "positives": [
+        "A wall clock or desk clock showing the time is visible. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 18,
+      "name": "Detect backpack",
+      "positives": [
+        "A backpack, briefcase, or laptop bag is visible near the desk or floor. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 19,
+      "name": "Detect office supplies",
+      "positives": [
+        "Staplers, tape dispensers, or other common office supplies are visible. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 3 }
+    },
+    {
+      "id": 20,
+      "name": "Thumbs up",
+      "positives": [
+        "Do you see a person giving a thumbs-up gesture in the office environment? Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 20,
+      "debounce": { "consecutive_yes": 2 }
+    }
+  ]
+}
