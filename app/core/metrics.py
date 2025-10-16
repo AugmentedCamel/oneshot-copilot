@@ -68,12 +68,17 @@ class MetricsCollector:
             self._user_metrics[user_id] = deque(maxlen=self.history_size)
         self._user_metrics[user_id].append(metrics)
         
+        queue_wait_str = f"{metrics.queue_wait_ms:.2f}" if metrics.queue_wait_ms is not None else "N/A"
+        http_post_str = f"{metrics.http_post_ms:.2f}" if metrics.http_post_ms is not None else "N/A"
+        server_proc_str = f"{metrics.server_proc_ms:.2f}" if metrics.server_proc_ms is not None else "N/A"
+        total_str = f"{metrics.total_ms:.2f}" if metrics.total_ms is not None else "N/A"
+        
         logger.debug(
             f"[METRICS] Recorded timing - user_id={user_id}, "
-            f"queue_wait={metrics.queue_wait_ms:.2f}ms, "
-            f"http_post={metrics.http_post_ms:.2f}ms, "
-            f"server_proc={metrics.server_proc_ms:.2f}ms, "
-            f"total={metrics.total_ms:.2f}ms"
+            f"queue_wait={queue_wait_str}ms, "
+            f"http_post={http_post_str}ms, "
+            f"server_proc={server_proc_str}ms, "
+            f"total={total_str}ms"
         )
     
     def get_recent_metrics(self, limit: int = 100) -> List[TimingMetrics]:

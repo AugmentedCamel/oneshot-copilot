@@ -13,12 +13,22 @@ import logging
 import sys
 import threading
 import time
+import asyncio
 from queue import Queue, Empty
 from typing import Optional, Tuple, Dict
 from datetime import datetime
 import os
-import requests
+import requests  # Keep for HTTP fallback mode
 from io import BytesIO
+
+# Direct imports for in-process frame ingestion (no HTTP overhead)
+try:
+    from app.core.frame_store import store_frame
+    from app.core.frame_queue import get_frame_queue, FrameQueueItem
+    DIRECT_INGEST_AVAILABLE = True
+except ImportError:
+    DIRECT_INGEST_AVAILABLE = False
+    # Note: logger not yet initialized here, will log later
 
 logging.basicConfig(
     level=logging.INFO,
@@ -506,13 +516,8 @@ class StreamQualityFilter:
                         should_keep = False
                         self.stats['frames_dropped_interval'] += 1
 
-            # Check if waiting for POST response (only if POST is enabled)
-            if should_keep and self.post_url:
-                with self.post_lock:
-                    if self.waiting_for_post_response:
-                        post_waiting_check_passed = False
-                        should_keep = False
-                        self.stats['frames_dropped_waiting_post'] += 1
+            # Direct ingest is non-blocking - frames flow continuously
+            # No blocking needed since we're using async in-process calls
 
             if should_keep:
                 self.stats['frames_kept'] += 1
@@ -664,18 +669,33 @@ class StreamQualityFilter:
 
     def post_frames(self):
         """
-        POST filtered frames to API endpoint in a separate thread.
+        Process filtered frames for ingestion using direct in-process calls.
+        Always uses direct ingest when available - never HTTP to localhost.
         """
         if not self.post_url:
             return
 
-        logger.info(f"Starting POST thread to {self.post_url}")
-        logger.info(f"Question: {self.post_question}")
+        # ALWAYS use direct ingest when available (no HTTP overhead!)
+        use_direct_ingest = DIRECT_INGEST_AVAILABLE
+        
+        if use_direct_ingest:
+            logger.info(f"🚀 Starting DIRECT INGEST thread - NO HTTP overhead!")
+            logger.info(f"Username: {self.post_username}")
+        else:
+            logger.error("❌ Direct ingest NOT available - missing imports!")
+            logger.error("Please ensure app.core.frame_store and app.core.frame_queue are accessible")
+            return
+            
         logger.info(f"Stream ID: {self.stream_id}, Username: {self.post_username}")
         if self.post_rotate_90:
-            logger.info("Rotation: 90 degrees counterclockwise enabled for POST")
+            logger.info("Rotation: 90 degrees counterclockwise enabled")
         if self.target_resolution:
             logger.info(f"Target resolution: {self.target_resolution[0]}x{self.target_resolution[1]}")
+
+        # Create event loop for async operations if using direct ingest
+        if use_direct_ingest:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
         while self.running:
             try:
@@ -683,7 +703,7 @@ class StreamQualityFilter:
 
                 self.stats['frames_posted'] += 1
 
-                # Time rotation if requested (for POST only)
+                # Time rotation if requested
                 if self.post_rotate_90:
                     rotation_start = time.time()
                     frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
@@ -695,7 +715,6 @@ class StreamQualityFilter:
                 if self.target_resolution:
                     resize_start = time.time()
                     target_width, target_height = self.target_resolution
-                    # Use INTER_AREA for best quality when downscaling (fastest and best results)
                     frame = cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_AREA)
                     resize_time = time.time() - resize_start
                     self.timing_stats['frame_resize'] += resize_time
@@ -712,11 +731,8 @@ class StreamQualityFilter:
                     except Exception as e:
                         logger.warning(f"Failed to save latest frame: {e}")
 
-                # Set flag to indicate we're waiting for POST response
-                with self.post_lock:
-                    self.waiting_for_post_response = True
+                # Direct ingest is non-blocking - no flag needed
 
-                # POST the frame
                 try:
                     # Time JPG encoding
                     encoding_start = time.time()
@@ -725,70 +741,69 @@ class StreamQualityFilter:
                     self.timing_stats['jpg_encoding'] += encoding_time
                     self.timing_counts['jpg_encoding'] += 1
 
-                    # Time POST request
-                    post_start = time.time()
+                    # Time ingest operation
+                    ingest_start = time.time()
 
                     # Generate frame_id as current timestamp in milliseconds
-                    frame_id = int(time.time() * 1000)
+                    frame_id = str(int(time.time() * 1000))
 
-                    files = {
-                        'file': ('frame.jpg', BytesIO(jpg_bytes), 'image/jpeg')
-                    }
-                    data = {
-                        'question': self.post_question,
-                        'webhook_url': 'http://192.168.9.200:3000/api/feedback',
-                        'username': self.post_username,
-                        'frame_id': str(frame_id)
-                    }
-                    response = requests.post(
-                        self.post_url,
-                        files=files,
-                        data=data,
-                        timeout=self.post_timeout,
-                        verify=self.post_verify_ssl
-                    )
-                    post_time = time.time() - post_start
-                    post_time_ms = post_time * 1000  # Convert to milliseconds
-                    self.timing_stats['post_request'] += post_time
-                    self.timing_counts['post_request'] += 1
+                    if use_direct_ingest:
+                        # DIRECT INGEST - no HTTP overhead!
+                        try:
+                            # Store frame directly in memory
+                            store_frame(frame_id, jpg_bytes)
+                            
+                            # Enqueue for VLM processing
+                            frame_queue = get_frame_queue()
+                            queue_item = FrameQueueItem(
+                                user_id=self.post_username,
+                                frame_data=frame_id,
+                                enqueue_time=time.time(),
+                                procedure_id=None
+                            )
+                            
+                            # Run async enqueue in the event loop
+                            success = loop.run_until_complete(frame_queue.enqueue(queue_item))
+                            
+                            ingest_time = time.time() - ingest_start
+                            ingest_time_ms = ingest_time * 1000
+                            self.timing_stats['post_request'] += ingest_time
+                            self.timing_counts['post_request'] += 1
 
-                    self.stats['post_successes'] += 1
-                    
-                    # Log structured metrics for stream ingestion
-                    logger.info(
-                        f"STREAM_POST_METRICS user={self.post_username} "
-                        f"frame_id={frame_id} "
-                        f"post_time_ms={post_time_ms:.1f} "
-                        f"status={response.status_code}"
-                    )
-                    
-                    logger.debug(
-                        f"POST successful: {response.status_code} - frame_id: {frame_id} - {response.text[:100]}")
-
-                except requests.exceptions.Timeout:
-                    self.stats['post_failures'] += 1
-                    logger.warning(f"POST request timed out after {self.post_timeout}s")
-
-                except requests.exceptions.RequestException as e:
-                    self.stats['post_failures'] += 1
-                    logger.warning(f"POST request failed: {e}")
+                            if success:
+                                self.stats['post_successes'] += 1
+                                logger.info(
+                                    f"STREAM_INGEST_METRICS user={self.post_username} "
+                                    f"frame_id={frame_id} "
+                                    f"ingest_time_ms={ingest_time_ms:.1f} "
+                                    f"method=DIRECT"
+                                )
+                                logger.debug(f"Direct ingest successful - frame_id: {frame_id}")
+                            else:
+                                self.stats['post_failures'] += 1
+                                logger.warning(f"Direct ingest failed to enqueue - frame_id: {frame_id}")
+                                
+                        except Exception as e:
+                            self.stats['post_failures'] += 1
+                            logger.error(f"Direct ingest error: {e}", exc_info=True)
 
                 except Exception as e:
                     self.stats['post_failures'] += 1
-                    logger.error(f"Unexpected error during POST: {e}", exc_info=True)
+                    logger.error(f"Ingest error: {e}", exc_info=True)
 
                 finally:
-                    # Clear flag after POST completes (success or failure)
-                    with self.post_lock:
-                        self.waiting_for_post_response = False
+                    # Direct ingest is non-blocking - no cleanup needed
+                    pass
 
             except Empty:
                 # No frame available, continue waiting
                 pass
             except Exception as e:
-                logger.error(f"Error in POST thread: {e}", exc_info=True)
+                logger.error(f"Error in ingest thread: {e}", exc_info=True)
 
-        logger.info("POST thread stopped")
+        if use_direct_ingest:
+            loop.close()
+        logger.info("Ingest thread stopped")
 
     def _show_preview(self, frame: np.ndarray, metrics: Dict):
         """
@@ -889,7 +904,7 @@ class StreamQualityFilter:
         if self.output_file:
             logger.info(f"Output File: {self.output_file}")
         if self.post_url:
-            logger.info(f"POST URL: {self.post_url}")
+            logger.info(f"🚀 Ingest Mode: DIRECT (no HTTP overhead)")
             logger.info(f"POST Question: {self.post_question}")
         if self.save_latest_frame:
             logger.info(f"Saving latest frame to: {self.save_latest_frame}")
@@ -1031,7 +1046,7 @@ Note: For streaming output, make sure you have MediaMTX running:
 
     parser.add_argument(
         '--post-url',
-        help='POST filtered frames to this URL (e.g., https://192.168.9.244:8080/qa)'
+        help='Enable frame ingestion (use any non-empty value like "direct" or "enabled"). Always uses direct in-process ingestion - NO HTTP overhead!'
     )
 
     parser.add_argument(

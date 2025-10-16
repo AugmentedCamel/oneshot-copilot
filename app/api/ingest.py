@@ -1,4 +1,5 @@
 """Frame ingestion API endpoint."""
+import asyncio
 import logging
 from fastapi import APIRouter, UploadFile, Form, File, HTTPException
 from typing import Dict
@@ -38,7 +39,7 @@ async def ingest(
     logger.info(f"[⏱️ TIMING] Frame ingest API called - username={username}, frame_id={frame_id}")
     logger.info(f"[INGEST] Request received - username={username}, frame_id={frame_id}, filename={file.filename}")
     try:
-        # [TIMING] Read and store frame bytes
+        # [TIMING] Read frame bytes (only thing we do before responding)
         file_read_start = perf_counter()
         logger.debug(f"Reading frame bytes from uploaded file: {file.filename}")
         frame_bytes = await file.read()
@@ -46,47 +47,58 @@ async def ingest(
         frame_size = len(frame_bytes)
         logger.info(f"[⏱️ TIMING] File read completed - size={frame_size} bytes, duration={file_read_ms:.3f}ms")
         
-        # [TIMING] Store frame in memory
-        frame_store_start = perf_counter()
-        logger.debug(f"Storing frame in memory: frame_id={frame_id}")
-        store_frame(frame_id, frame_bytes)
-        frame_store_ms = (perf_counter() - frame_store_start) * 1000
-        logger.info(f"[⏱️ TIMING] Frame stored in memory - duration={frame_store_ms:.3f}ms")
-        
-        # [TIMING] Enqueue frame for async processing (instead of direct processing)
-        enqueue_start = perf_counter()
-        frame_queue = get_frame_queue()
-        queue_item = FrameQueueItem(
-            user_id=username,
-            frame_data=frame_id,  # Store frame_id, actual bytes are in frame_store
-            enqueue_time=time(),
-            procedure_id=None  # Will be determined by state machine
-        )
-        
-        enqueue_success = await frame_queue.enqueue(queue_item)
-        enqueue_ms = (perf_counter() - enqueue_start) * 1000
-        
-        if enqueue_success:
-            logger.info(f"[⏱️ TIMING] Frame enqueued - duration={enqueue_ms:.3f}ms")
-            logger.info(f"[INGEST] Frame enqueued successfully - username={username}, frame_id={frame_id}")
-        else:
-            logger.error(f"[INGEST] Failed to enqueue frame - username={username}, frame_id={frame_id}")
-        
-        # [TIMING] Calculate API processing time with breakdown
+        # [TIMING] Calculate API response time (respond immediately after reading file)
         api_end = perf_counter()
         api_duration = (api_end - api_start) * 1000  # Convert to ms
         
-        logger.info(f"[⏱️ TIMING] ========== INGEST API BREAKDOWN ==========")
-        logger.info(f"[⏱️ TIMING] File Read:           {file_read_ms:7.3f}ms")
-        logger.info(f"[⏱️ TIMING] Frame Store:         {frame_store_ms:7.3f}ms")
-        logger.info(f"[⏱️ TIMING] Queue Enqueue:       {enqueue_ms:7.3f}ms")
-        logger.info(f"[⏱️ TIMING] TOTAL INGEST API:    {api_duration:7.3f}ms")
-        logger.info(f"[⏱️ TIMING] ===============================================")
-        logger.info(f"[INGEST] Success - username={username}, frame_id={frame_id}, size={frame_size} bytes, queued={enqueue_success}")
+        logger.info(f"[⏱️ TIMING] API responding immediately - duration={api_duration:.3f}ms")
+        
+        # Fire-and-forget: Process frame storage and enqueuing in background
+        async def process_frame_async():
+            """Process frame storage and enqueuing asynchronously."""
+            try:
+                # Store frame in memory
+                frame_store_start = perf_counter()
+                logger.debug(f"[BACKGROUND] Storing frame in memory: frame_id={frame_id}")
+                store_frame(frame_id, frame_bytes)
+                frame_store_ms = (perf_counter() - frame_store_start) * 1000
+                logger.info(f"[⏱️ TIMING] [BACKGROUND] Frame stored - duration={frame_store_ms:.3f}ms")
+                
+                # Enqueue frame for async processing
+                enqueue_start = perf_counter()
+                frame_queue = get_frame_queue()
+                queue_item = FrameQueueItem(
+                    user_id=username,
+                    frame_data=frame_id,
+                    enqueue_time=time(),
+                    procedure_id=None
+                )
+                
+                enqueue_success = await frame_queue.enqueue(queue_item)
+                enqueue_ms = (perf_counter() - enqueue_start) * 1000
+                
+                if enqueue_success:
+                    logger.info(f"[⏱️ TIMING] [BACKGROUND] Frame enqueued - duration={enqueue_ms:.3f}ms")
+                    logger.info(f"[INGEST] [BACKGROUND] Frame processed successfully - username={username}, frame_id={frame_id}")
+                else:
+                    logger.error(f"[INGEST] [BACKGROUND] Failed to enqueue frame - username={username}, frame_id={frame_id}")
+                
+                # Log total background processing time
+                total_bg_ms = frame_store_ms + enqueue_ms
+                logger.info(f"[⏱️ TIMING] [BACKGROUND] Total processing time: {total_bg_ms:.3f}ms")
+                
+            except Exception as e:
+                logger.error(f"[INGEST] [BACKGROUND] Failed - username={username}, frame_id={frame_id}, error: {str(e)}", exc_info=True)
+        
+        # Create background task (fire-and-forget)
+        asyncio.create_task(process_frame_async())
+        
+        # Return immediately without waiting for background processing
+        logger.info(f"[INGEST] Responding immediately - username={username}, frame_id={frame_id}, size={frame_size} bytes")
         
         return {
             "ok": True,
-            "queued": enqueue_success,
+            "accepted": True,
             "frame_id": frame_id,
             "username": username
         }
