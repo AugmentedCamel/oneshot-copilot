@@ -3,7 +3,11 @@ import asyncio
 import logging
 from fastapi import FastAPI
 from app.api import ingest, vlm_callback, procedure
-from app.config import VERBOSE_LOGGING
+from app.config import VERBOSE_LOGGING, FRAME_QUEUE_SIZE
+from app.core.vlm_client import init_http_client, close_http_client
+from app.core.frame_queue import init_frame_queue
+from app.core.vlm_worker import start_vlm_worker, stop_vlm_worker
+from app.core.metrics import init_metrics_collector
 
 # ============================================================================
 # LOGGING CONFIGURATION
@@ -106,7 +110,7 @@ async def stream_ingestion_task():
                 post_url=f"{settings.SELF_URL}/api/ingest",
                 post_question="Analyze this frame",
                 post_verify_ssl=False,
-                min_frame_interval=1.0,  # 1 frame per second
+                min_frame_interval=0.0,  # No frame interval limit (disabled)
                 low_latency_mode=True,
                 post_timeout=30,  # Longer timeout for local requests
                 blur_threshold=100.0,
@@ -152,7 +156,28 @@ async def startup_event():
     """Log startup event and start background tasks."""
     global _tick_task, _stream_task, _stream_retry_event
     logger.info("=" * 60)
-    logger.info("APPLICATION STARTUP COMPLETE")
+    logger.info("APPLICATION STARTUP")
+    
+    # Initialize singleton HTTP client for VLM requests
+    logger.info("Initializing HTTP client for VLM requests...")
+    await init_http_client()
+    logger.info("HTTP client initialized successfully")
+    
+    # Initialize frame queue
+    logger.info(f"Initializing frame queue with size={FRAME_QUEUE_SIZE}...")
+    init_frame_queue(maxsize=FRAME_QUEUE_SIZE)
+    logger.info("Frame queue initialized successfully")
+    
+    # Initialize metrics collector
+    logger.info("Initializing metrics collector...")
+    init_metrics_collector()
+    logger.info("Metrics collector initialized successfully")
+    
+    # Start VLM worker task
+    logger.info("Starting VLM worker task...")
+    await start_vlm_worker()
+    logger.info("VLM worker task started successfully")
+    
     logger.info("Starting background timeout checker...")
     _tick_task = asyncio.create_task(tick_all_users())
     logger.info("Background timeout checker started")
@@ -175,6 +200,12 @@ async def shutdown_event():
     global _tick_task, _stream_task
     logger.info("=" * 60)
     logger.info("APPLICATION SHUTDOWN")
+    
+    # Stop VLM worker task first
+    logger.info("Stopping VLM worker task...")
+    await stop_vlm_worker()
+    logger.info("VLM worker task stopped successfully")
+    
     if _tick_task:
         logger.info("Cancelling background timeout checker...")
         _tick_task.cancel()
@@ -189,6 +220,12 @@ async def shutdown_event():
             await _stream_task
         except asyncio.CancelledError:
             logger.info("Stream ingestion task cancelled")
+    
+    # Close singleton HTTP client
+    logger.info("Closing HTTP client...")
+    await close_http_client()
+    logger.info("HTTP client closed successfully")
+    
     logger.info("=" * 60)
 
 

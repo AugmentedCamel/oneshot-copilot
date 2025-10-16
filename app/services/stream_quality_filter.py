@@ -748,10 +748,20 @@ class StreamQualityFilter:
                         verify=self.post_verify_ssl
                     )
                     post_time = time.time() - post_start
+                    post_time_ms = post_time * 1000  # Convert to milliseconds
                     self.timing_stats['post_request'] += post_time
                     self.timing_counts['post_request'] += 1
 
                     self.stats['post_successes'] += 1
+                    
+                    # Log structured metrics for stream ingestion
+                    logger.info(
+                        f"STREAM_POST_METRICS user={self.post_username} "
+                        f"frame_id={frame_id} "
+                        f"post_time_ms={post_time_ms:.1f} "
+                        f"status={response.status_code}"
+                    )
+                    
                     logger.debug(
                         f"POST successful: {response.status_code} - frame_id: {frame_id} - {response.text[:100]}")
 

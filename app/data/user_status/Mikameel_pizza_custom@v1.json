@@ -8,17 +8,17 @@
     {
       "id": 1,
       "name": "Show pizza dough",
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": 2,
       "name": "Add lettuce",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": 3,
       "name": "Add ham",
-      "status": "todo"
+      "status": "in_progress"
     },
     {
       "id": 4,

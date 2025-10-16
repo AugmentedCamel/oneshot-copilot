@@ -1,6 +1,7 @@
 """In-memory storage for frame bytes."""
 import logging
 from typing import Dict, Optional
+from time import perf_counter
 
 logger = logging.getLogger(__name__)
 
@@ -10,21 +11,25 @@ _frame_store: Dict[str, bytes] = {}
 
 def store_frame(frame_id: str, frame_bytes: bytes) -> None:
     """Store frame bytes by frame_id."""
+    start = perf_counter()
     size_kb = len(frame_bytes) / 1024
     logger.debug(f"[FRAME_STORE] Storing frame - frame_id={frame_id}, size={size_kb:.2f} KB")
     _frame_store[frame_id] = frame_bytes
-    logger.debug(f"[FRAME_STORE] Frame stored - frame_id={frame_id}, total_frames={len(_frame_store)}")
+    duration_ms = (perf_counter() - start) * 1000
+    logger.debug(f"[FRAME_STORE] Frame stored - frame_id={frame_id}, total_frames={len(_frame_store)}, duration={duration_ms:.3f}ms")
 
 
 def get_frame(frame_id: str) -> Optional[bytes]:
     """Retrieve frame bytes by frame_id."""
+    start = perf_counter()
     logger.debug(f"[FRAME_STORE] Retrieving frame - frame_id={frame_id}")
     frame_bytes = _frame_store.get(frame_id)
+    duration_ms = (perf_counter() - start) * 1000
     if frame_bytes:
         size_kb = len(frame_bytes) / 1024
-        logger.debug(f"[FRAME_STORE] Frame retrieved - frame_id={frame_id}, size={size_kb:.2f} KB")
+        logger.info(f"[⏱️ TIMING] Frame retrieved - frame_id={frame_id}, size={size_kb:.2f} KB, duration={duration_ms:.3f}ms")
     else:
-        logger.warning(f"[FRAME_STORE] Frame not found - frame_id={frame_id}")
+        logger.warning(f"[FRAME_STORE] Frame not found - frame_id={frame_id}, duration={duration_ms:.3f}ms")
     return frame_bytes
 
 

@@ -8,6 +8,7 @@ from app.config import settings
 from app.core.vlm_client import post_to_vlm_multipart
 from app.core.frame_store import get_frame, clear_frame
 from app.models.state import Decision
+from app.core.metrics import get_metrics_collector, TimingMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -98,11 +99,13 @@ async def post_to_vlm_callback(
         # Import state machine here to avoid circular import
         from app.api.procedure import machine
         
-        # Retrieve frame bytes from storage
+        # [TIMING] Retrieve frame bytes from storage
+        frame_retrieve_start = perf_counter()
         logger.debug(f"[CALLBACK] Retrieving frame from storage - frame_id={frame_id}")
         from app.core.frame_store import get_store_size
         logger.info(f"[CALLBACK] *** FRAME STORE STATE *** - username={username}, frame_id={frame_id}, store_size={get_store_size()}")
         frame_bytes = get_frame(frame_id)
+        frame_retrieve_ms = (perf_counter() - frame_retrieve_start) * 1000
         if not frame_bytes:
             logger.error(f"[CALLBACK] *** CRITICAL: Frame not found in storage *** - username={username}, frame_id={frame_id}, store_size={get_store_size()}")
             logger.error(f"[CALLBACK] This likely means the frame was already processed and cleared, but still exists in user's buffer")
@@ -115,25 +118,35 @@ async def post_to_vlm_callback(
                 machine_user.inflight_frame_id = None
             return
         logger.debug(f"[CALLBACK] Frame retrieved successfully - frame_id={frame_id}, size={len(frame_bytes)} bytes")
+        logger.info(f"[⏱️ TIMING] Frame retrieval completed - duration={frame_retrieve_ms:.3f}ms")
         
-        # Extract question and negatives from step definition
+        # [TIMING] Extract question and negatives from step definition
+        request_prep_start = perf_counter()
         question = step_def["positives"][0]
         negatives = step_def["negatives"]
+        request_prep_ms = (perf_counter() - request_prep_start) * 1000
         logger.info(f"[CALLBACK] VLM request params - question='{question}', negatives={negatives}")
+        logger.info(f"[⏱️ TIMING] Request preparation completed - duration={request_prep_ms:.3f}ms")
         
-        # Send to VLM /qa endpoint (synchronous response)
+        # [TIMING] Send to VLM /qa endpoint (synchronous response)
+        vlm_request_start = perf_counter()
         logger.info(f"[CALLBACK] *** SENDING TO VLM /qa *** - frame_id={frame_id}, vlm_url={settings.VLM_URL}")
-        response_json = await post_to_vlm_multipart(
+        response_json, http_post_ms, server_proc_ms = await post_to_vlm_multipart(
             file_bytes=frame_bytes,
             question=question,
             negatives=negatives,
             vlm_url=settings.VLM_URL
         )
-        logger.info(f"[CALLBACK] *** VLM RESPONSE RECEIVED *** - frame_id={frame_id}")
+        vlm_request_ms = (perf_counter() - vlm_request_start) * 1000
+        logger.info(f"[CALLBACK] *** VLM RESPONSE RECEIVED *** - frame_id={frame_id}, http_post_ms={http_post_ms:.2f}ms")
+        logger.info(f"[⏱️ TIMING] Total VLM request time (including parsing) - duration={vlm_request_ms:.2f}ms")
         logger.info(f"[CALLBACK] *** RAW RESPONSE *** - response_json={response_json}, type={type(response_json)}")
+        if server_proc_ms is not None:
+            logger.info(f"[CALLBACK] Server processing time: {server_proc_ms:.2f}ms")
         logger.debug(f"[CALLBACK] Response data: {response_json}")
         
-        # Parse the response structure - handle both nested and flat formats
+        # [TIMING] Parse the response structure - handle both nested and flat formats
+        response_parse_start = perf_counter()
         # Try nested format first: {"data": {"result": "yes"}}
         data = response_json.get("data") if isinstance(response_json, dict) else None
         if data and isinstance(data, dict):
@@ -171,19 +184,105 @@ async def post_to_vlm_callback(
             logger.error(f"[CALLBACK] Invalid decision type: {type(result)}, value={result}, defaulting to NO")
             decision = Decision.NO
         
-        # Pass decision to state machine
+        response_parse_ms = (perf_counter() - response_parse_start) * 1000
+        logger.info(f"[⏱️ TIMING] Response parsing completed - duration={response_parse_ms:.3f}ms")
+        
+        # [TIMING] Pass decision to state machine
+        state_machine_start = perf_counter()
         logger.info(f"[CALLBACK] Processing decision - username={username}, frame_id={frame_id}, decision={decision.value}")
         machine.vlm_decision(username, frame_id, decision)
+        state_machine_ms = (perf_counter() - state_machine_start) * 1000
+        logger.info(f"[⏱️ TIMING] State machine decision processing - duration={state_machine_ms:.3f}ms")
         
-        # [TIMING] Calculate total callback duration
+        # [TIMING] Calculate total callback duration and breakdown
         callback_end = perf_counter()
         callback_duration = (callback_end - callback_start) * 1000  # Convert to ms
-        logger.info(f"[⏱️ TIMING] VLM callback completed - username={username}, frame_id={frame_id}, total_duration={callback_duration:.2f}ms")
+        
+        # [TIMING] Log detailed breakdown
+        logger.info(f"[⏱️ TIMING] ========== CALLBACK BREAKDOWN ==========")
+        logger.info(f"[⏱️ TIMING] Frame Retrieval:      {frame_retrieve_ms:7.2f}ms")
+        logger.info(f"[⏱️ TIMING] Request Preparation:  {request_prep_ms:7.2f}ms")
+        logger.info(f"[⏱️ TIMING] HTTP POST (total):    {http_post_ms:7.2f}ms")
+        if server_proc_ms is not None:
+            logger.info(f"[⏱️ TIMING]   └─ VLM Processing:  {server_proc_ms:7.2f}ms")
+            network_overhead = http_post_ms - server_proc_ms
+            logger.info(f"[⏱️ TIMING]   └─ Network/Overhead:{network_overhead:7.2f}ms")
+        logger.info(f"[⏱️ TIMING] Response Parsing:     {response_parse_ms:7.2f}ms")
+        logger.info(f"[⏱️ TIMING] State Machine Update: {state_machine_ms:7.2f}ms")
+        logger.info(f"[⏱️ TIMING] TOTAL CALLBACK:       {callback_duration:7.2f}ms")
+        logger.info(f"[⏱️ TIMING] ==========================================")
+        
+        # [METRICS] Collect and record all timing metrics
+        try:
+            # Get queue wait time from vlm_worker module
+            from app.core.vlm_worker import _frame_queue_timings
+            queue_wait_ms = _frame_queue_timings.pop(frame_id, None)
+            
+            # Calculate total time
+            total_ms = callback_duration
+            
+            # Create timing metrics object
+            metrics = TimingMetrics(
+                queue_wait_ms=queue_wait_ms,
+                http_post_ms=http_post_ms,
+                server_proc_ms=server_proc_ms,
+                total_ms=total_ms
+            )
+            
+            # Record and log metrics
+            metrics_collector = get_metrics_collector()
+            metrics_collector.record_timing(username, metrics)
+            metrics_collector.log_metrics(metrics, username)
+            
+            logger.info(f"[⏱️ TIMING] VLM callback completed - username={username}, frame_id={frame_id}, total_duration={callback_duration:.2f}ms")
+            
+            # [TIMING] Calculate and log END-TO-END timing from ingestion to completion
+            try:
+                from app.api.procedure import machine
+                machine_user = machine._users.get(username)
+                if machine_user and machine_user.frame_ingest_time:
+                    total_end_to_end = (callback_end - machine_user.frame_ingest_time) * 1000
+                    
+                    # Calculate component times
+                    if queue_wait_ms and machine_user.vlm_dispatch_time:
+                        ingest_to_dequeue = queue_wait_ms
+                        dequeue_to_dispatch = (machine_user.vlm_dispatch_time - (machine_user.frame_ingest_time + queue_wait_ms / 1000)) * 1000
+                        dispatch_to_response = http_post_ms if http_post_ms else 0
+                        response_to_completion = callback_duration - (frame_retrieve_ms + request_prep_ms + http_post_ms + response_parse_ms + state_machine_ms)
+                        
+                        logger.info(f"[⏱️ TIMING] ========================================")
+                        logger.info(f"[⏱️ TIMING] *** END-TO-END PIPELINE TIMING ***")
+                        logger.info(f"[⏱️ TIMING] ========================================")
+                        logger.info(f"[⏱️ TIMING] 1. Ingest → Queue Dequeue:  {ingest_to_dequeue:7.2f}ms (Queue Wait)")
+                        logger.info(f"[⏱️ TIMING] 2. Dequeue → VLM Dispatch:   {dequeue_to_dispatch:7.2f}ms (State Machine)")
+                        logger.info(f"[⏱️ TIMING] 3. VLM Dispatch → Response:  {dispatch_to_response:7.2f}ms (HTTP + VLM)")
+                        if server_proc_ms:
+                            logger.info(f"[⏱️ TIMING]    └─ VLM Processing:      {server_proc_ms:7.2f}ms")
+                            logger.info(f"[⏱️ TIMING]    └─ Network Overhead:    {dispatch_to_response - server_proc_ms:7.2f}ms")
+                        logger.info(f"[⏱️ TIMING] 4. Response → Completion:   {response_to_completion:7.2f}ms (Callback)")
+                        logger.info(f"[⏱️ TIMING] ----------------------------------------")
+                        logger.info(f"[⏱️ TIMING] TOTAL PIPELINE TIME:        {total_end_to_end:7.2f}ms")
+                        logger.info(f"[⏱️ TIMING] ========================================")
+                        
+                        # Calculate overhead (non-VLM time)
+                        vlm_time = server_proc_ms if server_proc_ms else dispatch_to_response
+                        overhead_time = total_end_to_end - vlm_time
+                        overhead_pct = (overhead_time / total_end_to_end * 100) if total_end_to_end > 0 else 0
+                        logger.info(f"[⏱️ TIMING] VLM Processing Time:        {vlm_time:7.2f}ms ({vlm_time/total_end_to_end*100:.1f}%)")
+                        logger.info(f"[⏱️ TIMING] Pipeline Overhead:          {overhead_time:7.2f}ms ({overhead_pct:.1f}%)")
+                        logger.info(f"[⏱️ TIMING] ========================================")
+            except Exception as e:
+                logger.error(f"[TIMING] Failed to calculate end-to-end timing: {str(e)}", exc_info=True)
+        except Exception as e:
+            logger.error(f"[METRICS] Failed to collect/record metrics: {str(e)}", exc_info=True)
+        
         logger.info(f"[CALLBACK] *** VLM PROCESSING COMPLETED *** - frame_id={frame_id}, decision={decision.value}")
         
-        # Clear frame from storage after successful processing
+        # [TIMING] Clear frame from storage after successful processing
+        frame_clear_start = perf_counter()
         clear_frame(frame_id)
-        logger.debug(f"[CALLBACK] Frame cleared from storage - frame_id={frame_id}")
+        frame_clear_ms = (perf_counter() - frame_clear_start) * 1000
+        logger.info(f"[⏱️ TIMING] Frame cleared from storage - duration={frame_clear_ms:.3f}ms")
         
     except Exception as e:
         # [TIMING] Log duration even on error

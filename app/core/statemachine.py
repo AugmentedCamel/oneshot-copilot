@@ -313,8 +313,9 @@ class UserStateMachine:
         - YES increments consecutive counter; others reset it.
         - On target YES count, progress step and emit progress + on_step/complete.
         """
-        # [TIMING] Record VLM response time
+        # [TIMING] Record VLM response time and start of decision processing
         response_time = perf_counter()
+        decision_start = perf_counter()
         
         logger.info(f"[STATE_MACHINE] Processing VLM decision - username={username}, frame_id={frame_id}, decision={decision.value}")
         u = self._get_or_create_user(username)
@@ -335,9 +336,13 @@ class UserStateMachine:
         else:
             logger.warning(f"[⏱️ TIMING] Incomplete timing data - username={username}, frame_id={frame_id}, has_ingest={u.frame_ingest_time is not None}, has_dispatch={u.vlm_dispatch_time is not None}")
         
+        # [TIMING] Check state validity
+        state_check_start = perf_counter()
         if u.state != UserState.WORKING or not u.procedure or not u.step_rt:
-            logger.debug(f"VLM decision ignored - username={username}, state={u.state.value}, has_procedure={u.procedure is not None}, has_step_rt={u.step_rt is not None}")
+            state_check_ms = (perf_counter() - state_check_start) * 1000
+            logger.debug(f"VLM decision ignored - username={username}, state={u.state.value}, has_procedure={u.procedure is not None}, has_step_rt={u.step_rt is not None}, check_duration={state_check_ms:.3f}ms")
             return
+        state_check_ms = (perf_counter() - state_check_start) * 1000
 
         # Guard: consider stale if step id mismatches (frame_id staleness left to transport)
         step = self._current_step_def(u)
@@ -345,19 +350,24 @@ class UserStateMachine:
             logger.warning(f"VLM decision stale - username={username}, step_mismatch (current={step.id if step else None}, runtime={u.step_rt.id})")
             return
 
-        # Mark inflight done for this user
+        # [TIMING] Mark inflight done for this user
+        inflight_update_start = perf_counter()
         # IMPORTANT: Keep inflight_frame_id set to prevent redispatch of same frame
         logger.info(f"[STATE_MACHINE] *** SETTING INFLIGHT=FALSE *** - username={username}, frame_id={frame_id}")
         u.inflight = False
         u.inflight_since_ms = None
         # DO NOT clear inflight_frame_id here - it's used for deduplication in _maybe_dispatch
         logger.debug(f"VLM response received, marking inflight=False - username={username}, keeping inflight_frame_id={u.inflight_frame_id} for deduplication")
+        inflight_update_ms = (perf_counter() - inflight_update_start) * 1000
 
+        # [TIMING] Process decision logic
+        decision_logic_start = perf_counter()
         if decision == Decision.YES:
             u.step_rt.yes_consecutive += 1
             logger.debug(f"YES decision - username={username}, consecutive_yes={u.step_rt.yes_consecutive}/{step.debounce_consecutive_yes}")
             if u.step_rt.yes_consecutive >= step.debounce_consecutive_yes:
-                # Progress to next step (or complete)
+                # [TIMING] Progress to next step (or complete)
+                step_progress_start = perf_counter()
                 from_id = step.id
                 next_index = u.current_index + 1
                 if next_index < len(u.procedure.steps):
@@ -372,6 +382,8 @@ class UserStateMachine:
                     self._on_step(u.username, u.procedure.id, next_step.id, next_step.name)
                     # Save status after step progression
                     self._save_status_file(username)
+                    step_progress_ms = (perf_counter() - step_progress_start) * 1000
+                    logger.info(f"[⏱️ TIMING] Step progression completed - duration={step_progress_ms:.3f}ms")
                 else:
                     # Completed
                     logger.info(f"[STATE_MACHINE] Procedure completed - username={username}, final_step={from_id}")
@@ -381,18 +393,34 @@ class UserStateMachine:
                     u.inflight_frame_id = None
                     # Save status after completion
                     self._save_status_file(username)
+                    step_progress_ms = (perf_counter() - step_progress_start) * 1000
+                    logger.info(f"[⏱️ TIMING] Procedure completion processing - duration={step_progress_ms:.3f}ms")
         else:
             # Any non-YES resets
             previous_count = u.step_rt.yes_consecutive
             u.step_rt.yes_consecutive = 0
             logger.debug(f"{decision.value} decision - username={username}, reset consecutive_yes from {previous_count} to 0")
+        
+        decision_logic_ms = (perf_counter() - decision_logic_start) * 1000
 
-        # Process buffered frame if available
+        # [TIMING] Process buffered frame if available
+        buffer_process_start = perf_counter()
         if u.buffered_frame:
             buffered_frame_id = u.buffered_frame
             u.buffered_frame = None  # Clear buffer before dispatching
             logger.info(f"[STATE_MACHINE] Processing buffered frame after VLM response - username={username}, buffered_frame={buffered_frame_id}")
             self._maybe_dispatch(u, buffered_frame_id)
+        buffer_process_ms = (perf_counter() - buffer_process_start) * 1000
+        
+        # [TIMING] Log total decision processing time with breakdown
+        total_decision_ms = (perf_counter() - decision_start) * 1000
+        logger.info(f"[⏱️ TIMING] ========== DECISION PROCESSING BREAKDOWN ==========")
+        logger.info(f"[⏱️ TIMING] State Check:          {state_check_ms:7.3f}ms")
+        logger.info(f"[⏱️ TIMING] Inflight Update:      {inflight_update_ms:7.3f}ms")
+        logger.info(f"[⏱️ TIMING] Decision Logic:       {decision_logic_ms:7.3f}ms")
+        logger.info(f"[⏱️ TIMING] Buffer Processing:    {buffer_process_ms:7.3f}ms")
+        logger.info(f"[⏱️ TIMING] TOTAL DECISION:       {total_decision_ms:7.3f}ms")
+        logger.info(f"[⏱️ TIMING] =====================================================")
 
     def tick(self, username: str) -> None:
         """
@@ -407,10 +435,10 @@ class UserStateMachine:
 
         now = self._now_ms()
         
-        # Check for VLM request timeout (1 second)
+        # Check for VLM request timeout (2.5 seconds, aligned with HTTP client timeout)
         if u.inflight and u.inflight_since_ms is not None:
             elapsed_ms = now - u.inflight_since_ms
-            if elapsed_ms > 1000:  # 1 second timeout
+            if elapsed_ms > 2500:  # 2.5 second timeout (aligned with HTTP_TIMEOUT)
                 logger.warning(f"[STATE_MACHINE] *** VLM REQUEST TIMEOUT *** - username={username}, frame_id={u.inflight_frame_id}, elapsed_ms={elapsed_ms}")
                 logger.warning(f"[STATE_MACHINE] Clearing inflight flag to allow new requests - username={username}")
                 u.inflight = False
