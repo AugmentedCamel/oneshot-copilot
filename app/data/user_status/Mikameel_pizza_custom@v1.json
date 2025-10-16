@@ -8,37 +8,37 @@
     {
       "id": 1,
       "name": "Show pizza dough",
-      "status": "done"
+      "status": "in_progress"
     },
     {
       "id": 2,
       "name": "Add lettuce",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 3,
       "name": "Add ham",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 4,
       "name": "Add black olives",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 5,
       "name": "Add chilli red peppers",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 6,
       "name": "Add some Jalapeno peppers",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 7,
       "name": "Thumbs up",
-      "status": "done"
+      "status": "todo"
     }
   ]
 }

@@ -326,4 +326,29 @@ async def get_procedure_status(username: str) -> Dict:
         raise HTTPException(status_code=404, detail=f"No active procedure for user: {username}")
     
     logger.info(f"[GET_PROCEDURE_STATUS] Success - username={username}, procedure={status_data.get('id')}")
+
+
+@router.post("/trigger_stream_reconnect")
+async def trigger_stream_reconnect_endpoint() -> Dict:
+    """
+    Trigger an immediate reconnection attempt for the RTSP stream.
+    Useful when you know a stream has just become available.
+    
+    Returns:
+        Success response
+    """
+    logger.info("[STREAM] Reconnection trigger requested")
+    try:
+        # Import here to avoid circular dependency
+        import app.main as main_module
+        if hasattr(main_module, 'trigger_stream_reconnect'):
+            main_module.trigger_stream_reconnect()
+            logger.info("[STREAM] Reconnection signal sent")
+            return {"ok": True, "message": "Stream reconnection triggered"}
+        else:
+            logger.warning("[STREAM] Stream reconnection function not available")
+            return {"ok": False, "message": "Stream reconnection not available"}
+    except Exception as e:
+        logger.error(f"[STREAM] Failed to trigger reconnection: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to trigger reconnection: {str(e)}")
     return status_data

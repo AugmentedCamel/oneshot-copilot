@@ -56,6 +56,8 @@ logger.info("All API routers registered successfully with /api prefix")
 
 # Background task for timeout checking
 _tick_task = None
+_stream_task = None
+_stream_retry_event = asyncio.Event()
 
 async def tick_all_users():
     """Background task that periodically checks for timeouts."""
@@ -77,15 +79,92 @@ async def tick_all_users():
             logger.error(f"Error in tick_all_users background task: {str(e)}", exc_info=True)
             await asyncio.sleep(1.0)
 
+async def stream_ingestion_task():
+    """
+    Background task for RTSP/RTMP stream ingestion with automatic retry.
+    Continuously attempts to connect to the stream with configurable retry intervals.
+    """
+    from app.config import settings
+    
+    if not settings.RTSP_STREAM_URL:
+        logger.info("No RTSP stream configured (RTSP_STREAM_URL is empty), skipping stream ingestion")
+        return
+    
+    retry_interval = 10  # Retry every 10 seconds if stream is unavailable
+    logger.info(f"Stream ingestion task started - will check for stream every {retry_interval}s")
+    logger.info(f"Target stream: {settings.RTSP_STREAM_URL}")
+    logger.info(f"Stream username: {settings.STREAM_USERNAME}")
+    
+    while True:
+        try:
+            from app.services.stream_quality_filter import StreamQualityFilter
+            
+            logger.info(f"Attempting to connect to stream: {settings.RTSP_STREAM_URL}")
+            
+            filter_pipeline = StreamQualityFilter(
+                input_rtsp_url=settings.RTSP_STREAM_URL,
+                post_url=f"{settings.SELF_URL}/api/ingest",
+                post_question="Analyze this frame",
+                post_verify_ssl=False,
+                min_frame_interval=1.0,  # 1 frame per second
+                low_latency_mode=True,
+                post_timeout=30,  # Longer timeout for local requests
+                blur_threshold=100.0,
+                brightness_min=50.0,
+                brightness_max=250.0,
+                post_username=settings.STREAM_USERNAME
+            )
+            
+            logger.info(f"Stream connection established, starting frame processing...")
+            
+            # Run in thread pool to avoid blocking the event loop
+            # This will block until the stream disconnects or an error occurs
+            await asyncio.to_thread(filter_pipeline.run)
+            
+            # If we reach here, the stream has ended or disconnected
+            logger.warning(f"Stream disconnected, will retry in {retry_interval}s")
+            
+        except Exception as e:
+            logger.error(f"Stream connection failed: {str(e)}")
+            logger.info(f"Will retry connection in {retry_interval}s")
+        
+        # Wait for retry interval or until signaled to retry immediately
+        try:
+            await asyncio.wait_for(_stream_retry_event.wait(), timeout=retry_interval)
+            _stream_retry_event.clear()
+            logger.info("Received retry signal, attempting immediate reconnection...")
+        except asyncio.TimeoutError:
+            # Timeout is normal - time to retry
+            logger.debug(f"Retry interval elapsed, attempting to reconnect...")
+
+def trigger_stream_reconnect():
+    """
+    Signal the stream ingestion task to immediately attempt reconnection.
+    Useful when you know a stream has become available.
+    """
+    global _stream_retry_event
+    if _stream_retry_event:
+        _stream_retry_event.set()
+        logger.info("Stream reconnection triggered")
+
 @app.on_event("startup")
 async def startup_event():
     """Log startup event and start background tasks."""
-    global _tick_task
+    global _tick_task, _stream_task, _stream_retry_event
     logger.info("=" * 60)
     logger.info("APPLICATION STARTUP COMPLETE")
     logger.info("Starting background timeout checker...")
     _tick_task = asyncio.create_task(tick_all_users())
     logger.info("Background timeout checker started")
+    
+    # Initialize stream retry event
+    _stream_retry_event = asyncio.Event()
+    
+    # Start stream ingestion task if configured
+    logger.info("Starting stream ingestion task...")
+    _stream_task = asyncio.create_task(stream_ingestion_task())
+    logger.info("Stream ingestion task started (will check for stream periodically)")
+    
     logger.info("Oneshot Copilot is ready to accept requests")
     logger.info("=" * 60)
 
@@ -93,7 +172,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Log shutdown event and cancel background tasks."""
-    global _tick_task
+    global _tick_task, _stream_task
     logger.info("=" * 60)
     logger.info("APPLICATION SHUTDOWN")
     if _tick_task:
@@ -103,6 +182,13 @@ async def shutdown_event():
             await _tick_task
         except asyncio.CancelledError:
             logger.info("Background timeout checker cancelled")
+    if _stream_task:
+        logger.info("Cancelling stream ingestion task...")
+        _stream_task.cancel()
+        try:
+            await _stream_task
+        except asyncio.CancelledError:
+            logger.info("Stream ingestion task cancelled")
     logger.info("=" * 60)
 
 

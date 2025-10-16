@@ -51,7 +51,26 @@ SELF_URL=https://your-server.ngrok-free.app
 MENTRA_URL=https://client-webhook.example.com
 VLM_URL=https://vlm-service.ngrok.app
 MAX_FRAMES_PER_USER=10
+
+# Optional: RTSP/RTMP Stream Auto-Ingestion
+RTSP_STREAM_URL=rtsp://192.168.1.100:8554/live/stream
+STREAM_USERNAME=stream_user
 ```
+
+### RTSP Stream Auto-Ingestion (Optional)
+
+Oneshot Copilot can automatically ingest frames from an RTSP or RTMP stream. When configured, it will:
+- Connect to the stream on application startup
+- Filter frames by quality (blur and brightness)
+- Automatically POST quality frames to the `/ingest` endpoint
+- Send approximately 1 frame per second
+
+To enable:
+1. Set `RTSP_STREAM_URL` to your camera/stream URL
+2. Set `STREAM_USERNAME` to identify frames from this stream
+3. Restart the application
+
+Leave `RTSP_STREAM_URL` empty to disable this feature.
 
 ## Running the Server
 
@@ -84,6 +103,10 @@ The server will start at `http://localhost:8000`
 - **POST /abort** - Abort active procedure
   - Parameters: `username`
   - Returns: `{ok: true}`
+
+- **POST /trigger_stream_reconnect** - Trigger immediate RTSP stream reconnection
+  - No parameters required
+  - Returns: `{ok: true, message: "Stream reconnection triggered"}`
 
 ### Frame Ingestion
 
@@ -155,23 +178,26 @@ Procedures are defined in JSON files in [`app/data/procedures/`](app/data/proced
 ```
 oneshot_copilot/
 ├── app/
-│   ├── main.py                 # FastAPI application
-│   ├── config.py               # Configuration settings
+│   ├── main.py                      # FastAPI application
+│   ├── config.py                    # Configuration settings
 │   ├── models/
-│   │   ├── state.py           # UserState, Decision enums
-│   │   └── procedure.py       # ProcedureDef, StepDef
+│   │   ├── state.py                # UserState, Decision enums
+│   │   └── procedure.py            # ProcedureDef, StepDef
 │   ├── core/
-│   │   ├── statemachine.py    # State machine logic
-│   │   ├── vlm_client.py      # VLM HTTP client
-│   │   ├── callbacks.py       # Event callbacks
-│   │   └── frame_store.py     # Frame storage
+│   │   ├── statemachine.py         # State machine logic
+│   │   ├── vlm_client.py           # VLM HTTP client
+│   │   ├── callbacks.py            # Event callbacks
+│   │   └── frame_store.py          # Frame storage
+│   ├── services/
+│   │   ├── stream_quality_filter.py # RTSP stream ingestion
+│   │   └── status_service.py       # Status tracking
 │   └── api/
-│       ├── procedure.py       # Procedure endpoints
-│       ├── ingest.py          # Frame ingestion
-│       └── vlm_callback.py    # VLM callback handler
+│       ├── procedure.py            # Procedure endpoints
+│       ├── ingest.py               # Frame ingestion
+│       └── vlm_callback.py         # VLM callback handler
 └── app/data/
     └── procedures/
-        └── pizza_custom.json  # Example procedure
+        └── pizza_custom.json       # Example procedure
 ```
 
 ## Development
