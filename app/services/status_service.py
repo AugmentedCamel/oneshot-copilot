@@ -126,3 +126,44 @@ def delete_user_status(username: str, procedure_id: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to delete user status - username={username}, error: {str(e)}", exc_info=True)
         return False
+
+
+def delete_all_user_status(username: str) -> int:
+    """
+    Delete all status files for a given username.
+    This is useful when starting a new procedure to clean up any previous procedure files.
+    
+    Args:
+        username: Username
+        
+    Returns:
+        Number of files deleted
+    """
+    try:
+        ensure_status_directory()
+        
+        # Sanitize username to match filename pattern
+        safe_username = "".join(c for c in username if c.isalnum() or c in ('-', '_'))
+        
+        # Find all files matching the username pattern
+        pattern = f"{safe_username}_*.json"
+        matching_files = list(STATUS_DIR.glob(pattern))
+        
+        deleted_count = 0
+        for file_path in matching_files:
+            try:
+                file_path.unlink()
+                logger.info(f"Deleted user status file - username={username}, file={file_path.name}")
+                deleted_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to delete file {file_path.name}: {str(e)}")
+        
+        if deleted_count > 0:
+            logger.info(f"Deleted {deleted_count} status file(s) for username={username}")
+        else:
+            logger.debug(f"No status files found to delete for username={username}")
+        
+        return deleted_count
+    except Exception as e:
+        logger.error(f"Failed to delete user status files - username={username}, error: {str(e)}", exc_info=True)
+        return 0

@@ -273,8 +273,18 @@ async def get_procedure_status(username: str) -> Dict:
     """
     logger.info(f"[GET_PROCEDURE_STATUS] Request received - username={username}")
     
-    # First, try to find and read from user_status JSON files
-    # This allows manual testing by editing JSON files directly
+    # First, check state machine for active procedure (prioritize running procedures)
+    logger.info(f"[GET_PROCEDURE_STATUS] Checking state machine for active procedure - username={username}")
+    status_data = machine.get_procedure_status(username)
+    
+    if status_data:
+        # Found active procedure in state machine - return it
+        logger.info(f"[GET_PROCEDURE_STATUS] Success - username={username}, procedure={status_data.get('id')} (from state machine)")
+        return status_data
+    
+    # No active procedure in state machine - check for user_status JSON files for manual testing
+    # This allows manual testing by editing JSON files directly when no procedure is running
+    logger.info(f"[GET_PROCEDURE_STATUS] No active procedure in state machine, checking user_status files")
     status_dir = Path("app/data/user_status")
     
     if status_dir.exists():
@@ -300,10 +310,10 @@ async def get_procedure_status(username: str) -> Dict:
                 if '_comment' in data:
                     data_copy = data.copy()
                     del data_copy['_comment']
-                    logger.info(f"[GET_PROCEDURE_STATUS] Success - returned file data for {username} with {len(data_copy.get('steps', []))} steps")
+                    logger.info(f"[GET_PROCEDURE_STATUS] Success - returned file data for {username} with {len(data_copy.get('steps', []))} steps (from user_status file)")
                     return data_copy
                 
-                logger.info(f"[GET_PROCEDURE_STATUS] Success - returned file data for {username} with {len(data.get('steps', []))} steps")
+                logger.info(f"[GET_PROCEDURE_STATUS] Success - returned file data for {username} with {len(data.get('steps', []))} steps (from user_status file)")
                 return data
                 
             except json.JSONDecodeError as e:
@@ -314,18 +324,12 @@ async def get_procedure_status(username: str) -> Dict:
                 )
             except Exception as e:
                 logger.error(f"[GET_PROCEDURE_STATUS] Failed to read {status_file}: {str(e)}")
-                # Fall through to state machine
-                logger.info(f"[GET_PROCEDURE_STATUS] Falling back to state machine due to file read error")
+                # Fall through to error
+                logger.warning(f"[GET_PROCEDURE_STATUS] File read failed, no active procedure found")
     
-    # Fallback: Get from state machine (in-memory state)
-    logger.info(f"[GET_PROCEDURE_STATUS] No file found, checking state machine - username={username}")
-    status_data = machine.get_procedure_status(username)
-    
-    if not status_data:
-        logger.warning(f"[GET_PROCEDURE_STATUS] No active procedure - username={username}")
-        raise HTTPException(status_code=404, detail=f"No active procedure for user: {username}")
-    
-    logger.info(f"[GET_PROCEDURE_STATUS] Success - username={username}, procedure={status_data.get('id')}")
+    # No active procedure and no fallback file
+    logger.warning(f"[GET_PROCEDURE_STATUS] No active procedure - username={username}")
+    raise HTTPException(status_code=404, detail=f"No active procedure for user: {username}")
 
 
 @router.post("/trigger_stream_reconnect")

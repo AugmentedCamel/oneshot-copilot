@@ -1,13 +1,13 @@
 {
   "id": "pizza_custom@v1",
-  "name": "Subway Sandwich A",
+  "name": "Make a Custom Pizza",
   "version": 1,
   "steps": [
     {
       "id": 1,
-      "name": "Get the bread ready and sliced",
+      "name": "Show pizza dough",
       "positives": [
-        "A plain sliced open bread is clearly visible. Only answer with [yes] or [no]"
+        "A plain and empty pizza base or dough is clearly visible. Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
@@ -16,9 +16,9 @@
     },
     {
       "id": 2,
-      "name": "Add chicken slices",
+      "name": "Add lettuce",
       "positives": [
-        "Do you see slices of meat are visible on the bread? Only answer with [yes] or [no]"
+        "Green Lettuce leaves are visible on top of the pizza base. Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
@@ -27,9 +27,9 @@
     },
     {
       "id": 3,
-      "name": "Add cheese",
+      "name": "Add bacon",
       "positives": [
-        "Do you clearly see slices of cheese on top of the bread? Only answer with [yes] or [no]"
+        "Do you clearly see slices of ham or bacon, visible on top of green Lettuce. Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
@@ -40,7 +40,7 @@
       "id": 4,
       "name": "Add black olives",
       "positives": [
-        "Do you see multiple black olives on top of the bread? Only answer with [yes] or [no]"
+        "At least multiple black olives are visible on top of green Lettuce. Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
@@ -49,9 +49,10 @@
     },
     {
       "id": 5,
-      "name": "Add cucumber",
+      "name": "Add chilli red peppers",
       "positives": [
-        "Are there sliced cucumbers visible in the frame? Only answer with [yes] or [no]"
+        "Are there red peppers are visible in the frame? Only answer with [yes] or [no]"
+        "Are there red peppers are visible in the frame? Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {

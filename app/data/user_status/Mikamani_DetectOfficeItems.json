@@ -1,0 +1,109 @@
+{
+  "_comment": "DEBUG FILE: This file is for frontend testing. Edit this manually and call GET /api/procedure?username=dummy to see your changes immediately.",
+  "username": "Mikamani",
+  "id": "Detect Office Items",
+  "name": "Detect Office Items",
+  "version": 1,
+  "steps": [
+    {
+      "id": 1,
+      "name": "Show desk",
+      "status": "in_progress"
+    },
+    {
+      "id": 2,
+      "name": "Detect computer monitor",
+      "status": "todo"
+    },
+    {
+      "id": 3,
+      "name": "Detect keyboard",
+      "status": "todo"
+    },
+    {
+      "id": 4,
+      "name": "Detect mouse",
+      "status": "todo"
+    },
+    {
+      "id": 5,
+      "name": "Detect chair",
+      "status": "todo"
+    },
+    {
+      "id": 6,
+      "name": "Detect headphones",
+      "status": "todo"
+    },
+    {
+      "id": 7,
+      "name": "Detect notebook",
+      "status": "todo"
+    },
+    {
+      "id": 8,
+      "name": "Detect pen",
+      "status": "todo"
+    },
+    {
+      "id": 9,
+      "name": "Detect coffee mug",
+      "status": "todo"
+    },
+    {
+      "id": 10,
+      "name": "Detect water bottle",
+      "status": "todo"
+    },
+    {
+      "id": 11,
+      "name": "Detect smartphone",
+      "status": "todo"
+    },
+    {
+      "id": 12,
+      "name": "Detect TV or monitor screen",
+      "status": "todo"
+    },
+    {
+      "id": 13,
+      "name": "Detect printer",
+      "status": "todo"
+    },
+    {
+      "id": 14,
+      "name": "Detect plant",
+      "status": "todo"
+    },
+    {
+      "id": 15,
+      "name": "Detect lamp",
+      "status": "todo"
+    },
+    {
+      "id": 16,
+      "name": "Detect whiteboard",
+      "status": "todo"
+    },
+    {
+      "id": 17,
+      "name": "Detect clock",
+      "status": "todo"
+    },
+    {
+      "id": 18,
+      "name": "Detect backpack",
+      "status": "todo"
+    },
+    {
+      "id": 19,
+      "name": "Detect office supplies",
+      "status": "todo"
+    },
+    {
+      "id": 20,
+      "name": "Thumbs up",
+      "status": "todo"
+    }
+  ]
+}

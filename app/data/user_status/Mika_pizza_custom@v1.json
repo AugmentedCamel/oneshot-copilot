@@ -1,39 +1,44 @@
 {
   "_comment": "DEBUG FILE: This file is for frontend testing. Edit this manually and call GET /api/procedure?username=dummy to see your changes immediately.",
-  "username": "Mikameel",
+  "username": "Mika",
   "id": "pizza_custom@v1",
-  "name": "Subway Sandwich A",
+  "name": "Make a Custom Pizza",
   "version": 1,
   "steps": [
     {
       "id": 1,
-      "name": "Get the bread ready and sliced",
-      "status": "done"
+      "name": "Show pizza dough",
+      "status": "in_progress"
     },
     {
       "id": 2,
-      "name": "Add chicken slices",
-      "status": "done"
+      "name": "Add lettuce",
+      "status": "todo"
     },
     {
       "id": 3,
-      "name": "Add cheese",
-      "status": "done"
+      "name": "Add ham",
+      "status": "todo"
     },
     {
       "id": 4,
       "name": "Add black olives",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 5,
-      "name": "Add cucumber",
-      "status": "done"
+      "name": "Add chilli red peppers",
+      "status": "todo"
     },
     {
       "id": 6,
+      "name": "Add some Jalapeno peppers",
+      "status": "todo"
+    },
+    {
+      "id": 7,
       "name": "Thumbs up",
-      "status": "done"
+      "status": "todo"
     }
   ]
 }

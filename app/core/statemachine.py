@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Import status service for file persistence
 try:
-    from app.services.status_service import save_user_status, delete_user_status
+    from app.services.status_service import save_user_status, delete_user_status, delete_all_user_status
     _status_service_available = True
 except ImportError:
     logger.warning("Status service not available - status files will not be saved")
@@ -168,9 +168,11 @@ class UserStateMachine:
         Emits: on_step
         """
         logger.info(f"[STATE_MACHINE] Starting procedure - username={username}, procedure={procedure.id}, steps={len(procedure.steps)}")
-        # Delete any existing status file before starting new procedure
+        # Delete ALL existing status files for this username before starting new procedure
+        # This ensures clean state when switching between procedures
         if _status_service_available:
-            delete_user_status(username, procedure.id)
+            deleted_count = delete_all_user_status(username)
+            logger.info(f"[STATE_MACHINE] Cleaned up {deleted_count} old status file(s) for username={username}")
         u = self._get_or_create_user(username)
         now = self._now_ms()
         u.state = UserState.WORKING
