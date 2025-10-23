@@ -72,6 +72,25 @@ To enable:
 
 Leave `RTSP_STREAM_URL` empty to disable this feature.
 
+### Moondream AI Cloud VLM Support
+
+Oneshot Copilot supports both local and cloud-based VLM services. By default, it uses a local VLM service, but you can switch to Moondream AI cloud VLM for production deployments.
+
+To use Moondream AI cloud VLM:
+
+1. Sign up at [moondream.ai](https://moondream.ai) and get your API key
+2. Set `USE_CLOUD_VLM=true` in `.env`
+3. Set `MOONDREAM_API_KEY=your_key` in `.env`
+4. See [CLOUD_VLM.md](CLOUD_VLM.md) for detailed documentation
+
+**Configuration example:**
+```env
+USE_CLOUD_VLM=true
+MOONDREAM_API_KEY=your_moondream_api_key_here
+```
+
+**Important Note**: Moondream AI cloud does not support negative questions. When using cloud VLM, only positive questions from procedures are sent; negative questions are ignored (see [CLOUD_VLM.md](CLOUD_VLM.md) for details).
+
 ## Running the Server
 
 ```bash
