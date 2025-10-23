@@ -42,7 +42,12 @@ class Settings(BaseSettings):
     
     SELF_URL: str
     MENTRA_URL: str
-    VLM_URL: str
+    
+    # VLM Provider Configuration
+    VLM_PROVIDER: str = "local"  # Options: "local", "moondream", "auki_local"
+    VLM_URL: str = ""  # Used by: local, auki_local
+    MOONDREAM_API_KEY: str = ""  # Used by: moondream
+    
     RTSP_STREAM_URL: str = ""  # Optional RTSP/RTMP stream URL, empty = disabled
     STREAM_USERNAME: str = "stream_user"  # Username for stream-ingested frames
     MAX_FRAMES_PER_USER: int = 10

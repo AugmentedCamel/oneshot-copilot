@@ -1,9 +1,7 @@
 """VLM client for multipart HTTP requests."""
-import json
 import logging
 import httpx
 from typing import Dict, Optional, Tuple
-from time import perf_counter
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +95,49 @@ async def close_http_client() -> None:
     logger.info("[HTTP_CLIENT] Singleton client closed successfully")
 
 
+# ============================================================================
+# VLM STRATEGY FACTORY
+# Factory function to get the appropriate VLM strategy based on configuration
+# ============================================================================
+
+def get_vlm_strategy():
+    """
+    Factory function to get the appropriate VLM strategy based on configuration.
+    
+    Returns:
+        VLMStrategy instance configured from settings
+        
+    Raises:
+        ValueError: If VLM_PROVIDER is not recognized
+    """
+    from app.config import settings
+    from app.core.vlm_strategies import (
+        LocalVLMStrategy,
+        MoondreamVLMStrategy,
+        AukiLocalVLMStrategy
+    )
+    
+    provider = settings.VLM_PROVIDER.lower()
+    
+    if provider == "local":
+        logger.info("[VLM_FACTORY] Creating Local VLM strategy")
+        return LocalVLMStrategy(vlm_url=settings.VLM_URL)
+    
+    elif provider == "moondream":
+        logger.info("[VLM_FACTORY] Creating Moondream AI strategy")
+        return MoondreamVLMStrategy(api_key=settings.MOONDREAM_API_KEY)
+    
+    elif provider == "auki_local":
+        logger.info("[VLM_FACTORY] Creating Auki Local VLM strategy")
+        return AukiLocalVLMStrategy(vlm_url=settings.VLM_URL)
+    
+    else:
+        raise ValueError(
+            f"Unknown VLM_PROVIDER: '{settings.VLM_PROVIDER}'. "
+            f"Supported values: 'local', 'moondream', 'auki_local'"
+        )
+
+
 async def post_to_vlm_multipart(
     file_bytes: bytes,
     question: str,
@@ -104,107 +145,28 @@ async def post_to_vlm_multipart(
     vlm_url: str
 ) -> Tuple[Dict, float, Optional[float]]:
     """
-    Send multipart request to VLM /qa endpoint.
+    Send multipart request to VLM using the configured strategy.
     
-    Sends synchronous request to /qa endpoint:
-    - file: image bytes with filename and content-type
-    - question: first positive question from step
-    - negative_questions: JSON stringified array of negatives (optional)
+    Routes to appropriate VLM implementation based on VLM_PROVIDER setting:
+    - "local": Local VLM service (supports negative questions)
+    - "moondream": Moondream AI cloud (ignores negative questions)
+    - "auki_local": Auki Local VLM service (supports negative questions)
     
     Args:
         file_bytes: Image file bytes
-        question: The question to ask (step.positives[0])
-        negatives: List of negative questions (step.negatives)
-        vlm_url: Base URL of VLM service
+        question: The positive question to ask
+        negatives: List of negative questions (support depends on provider)
+        vlm_url: Base URL (used by some strategies, ignored by others)
         
     Returns:
         Tuple of (response_json, http_post_ms, server_proc_ms)
-        - response_json: Response JSON from VLM service containing the answer
-        - http_post_ms: HTTP request duration in milliseconds
-        - server_proc_ms: VLM server processing time in milliseconds (if available)
     """
-    logger.info(f"[VLM_CLIENT] Sending request to VLM - url={vlm_url}/qa")
-    logger.debug(f"[VLM_CLIENT] Request details - question={question}, negatives_count={len(negatives)}, file_size={len(file_bytes)} bytes")
+    strategy = get_vlm_strategy()
+    logger.info(f"[VLM_CLIENT] Using strategy: {strategy.name}")
+    logger.debug(f"[VLM_CLIENT] *** STRATEGY INSTANCE *** id={id(strategy)}, type={type(strategy).__name__}")
     
-    # Prepare form data for /qa endpoint
-    data = {
-        "question": question,
-    }
-    
-    # Add negative questions if provided
-    if negatives:
-        data["negative_questions"] = json.dumps(negatives)
-        logger.debug(f"[VLM_CLIENT] Form data prepared with negatives={negatives}")
-    else:
-        logger.debug(f"[VLM_CLIENT] Form data prepared without negatives")
-    
-    # Prepare file upload
-    files = {
-        "file": ("image.jpg", file_bytes, "image/jpeg")
-    }
-    logger.debug(f"[VLM_CLIENT] File prepared - filename=image.jpg, content_type=image/jpeg")
-    
-    # Send POST request to /qa endpoint using singleton client
-    try:
-        # Get singleton client
-        client = get_http_client()
-        
-        # [TIMING] Record HTTP request start time
-        request_start = perf_counter()
-        logger.info(f"[⏱️ TIMING] Sending HTTP request to VLM - url={vlm_url}/qa")
-        
-        logger.debug(f"[VLM_CLIENT] Sending POST request to {vlm_url}/qa...")
-        response = await client.post(
-            f"{vlm_url}/qa",
-            data=data,
-            files=files
-        )
-        
-        # [TIMING] Record HTTP response time
-        request_end = perf_counter()
-        http_post_ms = (request_end - request_start) * 1000  # Convert to ms
-        
-        logger.debug(f"[VLM_CLIENT] Response received - status_code={response.status_code}")
-        logger.info(f"[⏱️ TIMING] HTTP response received - duration={http_post_ms:.2f}ms, status={response.status_code}")
-        
-        response.raise_for_status()
-        response_json = response.json()
-        
-        # Extract server processing time from response headers if available
-        server_proc_ms = None
-        if 'X-Processing-Time' in response.headers:
-            try:
-                # Header might be in seconds or milliseconds, try to detect
-                header_value = float(response.headers['X-Processing-Time'])
-                # If value is very small (< 10), assume it's in seconds and convert to ms
-                server_proc_ms = header_value * 1000 if header_value < 10 else header_value
-                logger.debug(f"[VLM_CLIENT] Extracted server processing time: {server_proc_ms:.2f}ms")
-            except (ValueError, TypeError) as e:
-                logger.warning(f"[VLM_CLIENT] Failed to parse X-Processing-Time header: {e}")
-        
-        # Also check in response body if not in headers
-        if server_proc_ms is None and isinstance(response_json, dict):
-            # Check for common response field names
-            for field in ['processing_time_ms', 'processing_time', 'duration_ms', 'duration']:
-                if field in response_json:
-                    try:
-                        value = float(response_json[field])
-                        server_proc_ms = value * 1000 if value < 10 else value
-                        logger.debug(f"[VLM_CLIENT] Extracted server processing time from body.{field}: {server_proc_ms:.2f}ms")
-                        break
-                    except (ValueError, TypeError):
-                        pass
-        
-        logger.info(f"[VLM_CLIENT] Request successful - status={response.status_code}")
-        logger.debug(f"[VLM_CLIENT] Response data: {response_json}")
-        
-        return response_json, http_post_ms, server_proc_ms
-    except httpx.HTTPStatusError as e:
-        logger.error(f"[VLM_CLIENT] HTTP error - status={e.response.status_code}, message={str(e)}")
-        raise
-    except httpx.RequestError as e:
-        logger.error(f"[VLM_CLIENT] Request failed - error={str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"[VLM_CLIENT] Unexpected error - error={str(e)}", exc_info=True)
-        raise
+    return await strategy.query(
+        file_bytes=file_bytes,
+        question=question,
+        negatives=negatives
+    )
