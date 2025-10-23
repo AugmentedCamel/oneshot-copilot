@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.api import ingest, vlm_callback, procedure
 from app.config import VERBOSE_LOGGING, FRAME_QUEUE_SIZE
 from app.core.vlm_client import init_http_client, close_http_client
+from app.core.vlm_strategies.auki_local_vlm import close_websocket_connection
 from app.core.frame_queue import init_frame_queue
 from app.core.vlm_worker import start_vlm_worker, stop_vlm_worker
 from app.core.metrics import init_metrics_collector
@@ -225,6 +226,11 @@ async def shutdown_event():
     logger.info("Closing HTTP client...")
     await close_http_client()
     logger.info("HTTP client closed successfully")
+
+    # Close singleton WebSocket connection
+    logger.info("Closing WebSocket connection...")
+    await close_websocket_connection()
+    logger.info("WebSocket connection closed successfully")
     
     logger.info("=" * 60)
 
