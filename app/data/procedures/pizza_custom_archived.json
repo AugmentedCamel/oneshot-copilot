@@ -52,7 +52,6 @@
       "name": "Add chilli red peppers",
       "positives": [
         "Are there red peppers are visible in the frame? Only answer with [yes] or [no]"
-        "Are there red peppers are visible in the frame? Only answer with [yes] or [no]"
       ],
       "timeout_s": 20,
       "debounce": {
