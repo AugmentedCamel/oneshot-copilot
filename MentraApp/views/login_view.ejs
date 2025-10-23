@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>amicooked?</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        .login-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .login-box {
+            background: white;
+            padding: 56px 48px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow-lg);
+            text-align: center;
+            max-width: 440px;
+            width: 100%;
+            border: 1px solid var(--mid-gray);
+        }
+
+        .logo {
+            font-size: 5rem;
+            margin-bottom: 24px;
+            animation: float 3s ease-in-out infinite;
+            filter: drop-shadow(0 4px 8px rgba(255, 107, 53, 0.15));
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-12px); }
+        }
+
+        .login-title {
+            font-size: 2.75rem;
+            font-weight: 800;
+            color: var(--text-color);
+            margin-bottom: 12px;
+            letter-spacing: -0.03em;
+        }
+
+        .login-subtitle {
+            color: var(--text-muted);
+            margin-bottom: 40px;
+            font-size: 1rem;
+            font-weight: 400;
+        }
+
+        .input-group {
+            margin-bottom: 24px;
+        }
+
+        .input-group label {
+            display: block;
+            text-align: left;
+            margin-bottom: 10px;
+            color: var(--text-color);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 14px 18px;
+            border: 1px solid var(--mid-gray);
+            border-radius: var(--border-radius-md);
+            font-size: 1rem;
+            transition: all var(--transition-speed) ease;
+            background: var(--light-gray);
+            color: var(--text-color);
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            background: white;
+            box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+        }
+
+        .input-group input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .start-button {
+            width: 100%;
+            padding: 16px 24px;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+            color: white;
+            border: none;
+            border-radius: var(--border-radius-md);
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all var(--transition-speed) ease;
+            box-shadow: 0 4px 12px rgba(255, 107, 53, 0.25);
+            letter-spacing: 0.01em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .start-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 53, 0.35);
+        }
+
+        .start-button:active {
+            transform: translateY(0);
+        }
+
+        .start-button:disabled {
+            background: var(--secondary-color);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        .error-message {
+            color: var(--danger-color);
+            margin-top: 16px;
+            padding: 12px 16px;
+            font-size: 0.9rem;
+            display: none;
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: var(--border-radius-sm);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            font-weight: 500;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .spinner {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        .spinner.show {
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 480px) {
+            .login-box {
+                padding: 40px 32px;
+            }
+
+            .logo {
+                font-size: 4rem;
+            }
+
+            .login-title {
+                font-size: 2.25rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="login-container">
+    <div class="login-box">
+        <div class="logo">🍳</div>
+        <h1 class="login-title">amicooked?</h1>
+        <p class="login-subtitle">Let's find out together!</p>
+        
+        <% if (typeof message !== 'undefined' && message) { %>
+            <div class="error-message show" style="margin-bottom: 20px;">
+                <%= message %>
+            </div>
+        <% } %>
+        
+        <% if (typeof sessionInProgress !== 'undefined' && sessionInProgress) { %>
+            <div class="error-message show" style="margin-bottom: 20px; background: rgba(255, 193, 7, 0.1); border-color: rgba(255, 193, 7, 0.3); color: #f57c00;">
+                ⚠️ Active session detected for <%= typeof username !== 'undefined' ? username : 'your account' %>
+            </div>
+        <% } %>
+        
+        <form id="loginForm">
+            <div class="input-group">
+                <label for="username">Username</label>
+                <input
+                    type="text"
+                    id="username"
+                    name="username"
+                    placeholder="Enter your username"
+                    required
+                    autocomplete="off"
+                />
+            </div>
+            
+            <button type="submit" class="start-button" id="startButton">
+                <span class="spinner" id="spinner"></span>
+                <span id="buttonText">Start Cooking 🔥</span>
+            </button>
+            
+            <div id="errorMessage" class="error-message"></div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const loginForm = document.getElementById('loginForm');
+    const usernameInput = document.getElementById('username');
+    const startButton = document.getElementById('startButton');
+    const buttonText = document.getElementById('buttonText');
+    const spinner = document.getElementById('spinner');
+    const errorMessage = document.getElementById('errorMessage');
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const username = usernameInput.value.trim();
+        
+        if (!username) {
+            showError('Please enter a username');
+            return;
+        }
+
+        // Disable button and show loading state
+        startButton.disabled = true;
+        buttonText.textContent = 'Cooking...';
+        spinner.classList.add('show');
+        hideMessages();
+
+        try {
+            const response = await fetch('/api/save-login-name', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: username })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Redirect to main webview immediately
+                window.location.href = '/webview';
+            } else {
+                showError(data.error || 'Failed to save login name');
+                resetButton();
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            showError('Network error. Please try again.');
+            resetButton();
+        }
+    });
+
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.classList.add('show');
+    }
+
+    function hideMessages() {
+        errorMessage.classList.remove('show');
+    }
+
+    function resetButton() {
+        startButton.disabled = false;
+        buttonText.textContent = 'Start Cooking 🔥';
+        spinner.classList.remove('show');
+    }
+</script>
+</body>
+</html>
