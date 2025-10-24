@@ -1,10 +1,12 @@
 # Oneshot Copilot
 
-A FastAPI-based copilot system that helps users complete procedures step-by-step using computer vision analysis.
+A FastAPI-based copilot system that guides users through procedures step by step using computer vision analysis. The project is designed to be compatible with the Auki Real World Web ecosystem.
+This repository includes a Mentra Smart Glasses client application.
 
 ## Overview
 
 Oneshot Copilot guides users through multi-step procedures by analyzing video frames in real-time. It uses a VLM (Vision Language Model) service to verify each step's completion before allowing progression to the next step.
+
 
 ### Key Features
 
