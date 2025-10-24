@@ -24,6 +24,34 @@ Client → /ingest (frames) → State Machine → VLM Service
 Client ← Progress Updates ← State Machine ← /vlm/callback
 ```
 
+## Requirements
+
+### Core Requirements
+- **Python 3.8+** with pip
+- **FastAPI** and dependencies (see `requirements.txt`)
+- **VLM Service** (Vision Language Model) - Choose one option:
+  - **Local Auki VLM Node** (Recommended for development):
+    - Repository: [Auki Labs VLM Node](https://github.com/aukilabs/vlm-node/tree/main)
+    - Requires Docker with GPU support
+    - Must run on port **8080**
+  - **Cloud VLM**: [Moondream AI](https://moondream.ai) account with API key
+
+### Mentra Integration (Required)
+- **Mentra Account** with:
+  - API key
+  - App domain (`app.com.domain`)
+- Setup tutorial: [MentraOS Extended Example](https://github.com/Mentra-Community/MentraOS-Extended-Example-App/blob/main/README.md)
+
+### RTSP/RTMP Streaming (Optional)
+For automatic frame ingestion from video streams:
+- **RTSP/RTMP Server** (local or remote)
+- For local testing, you can use MediaMTX:
+  ```bash
+  docker pull bluenviron/mediamtx
+  docker run --rm -it -p 8554:8554 -p 1935:1935 bluenviron/mediamtx
+  ```
+- Configure `RTSP_STREAM_URL` in `.env` to enable
+
 ## Installation
 
 1. **Clone the repository**
@@ -74,9 +102,43 @@ Oneshot Copilot can automatically ingest frames from an RTSP or RTMP stream. Whe
 To enable:
 1. Set `RTSP_STREAM_URL` to your camera/stream URL
 2. Set `STREAM_USERNAME` to identify frames from this stream
-3. Restart the application
 
-Leave `RTSP_STREAM_URL` empty to disable this feature.
+### Local VLM Setup (Auki VLM Node)
+
+For local development, you can use the Auki Labs VLM Node which provides vision language model capabilities:
+
+#### Prerequisites
+- Docker with GPU support (NVIDIA GPU recommended)
+- NVIDIA Container Toolkit installed
+- At least 8GB GPU VRAM
+
+#### Setup Instructions
+
+1. **Clone the Auki VLM Node repository**:
+   ```bash
+   git clone https://github.com/aukilabs/vlm-node.git
+   cd vlm-node
+   ```
+
+2. **Build and run with GPU support**:
+   ```bash
+   make docker-gpu
+   ```
+
+3. **Verify the service is running**:
+   The VLM Node will start on **port 8080** by default. You can verify it's running:
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+4. **Configure Oneshot Copilot to use the local VLM**:
+   In your `.env` file, set:
+   ```env
+   VLM_URL=http://localhost:8080
+   USE_CLOUD_VLM=false
+   ```
+
+**Note**: The Auki VLM Node must be running before starting the Oneshot Copilot server.
 
 ### Moondream AI Cloud VLM Support
 
@@ -95,9 +157,122 @@ USE_CLOUD_VLM=true
 MOONDREAM_API_KEY=your_moondream_api_key_here
 ```
 
-**Important Note**: Moondream AI cloud does not support negative questions. When using cloud VLM, only positive questions from procedures are sent; negative questions are ignored (see [CLOUD_VLM.md](CLOUD_VLM.md) for details).
+**Important Note**: Moondream AI cloud does not support negative questions. When using cloud VLM, only positive questions from procedures are sent; negative questions are ignored (see [CLOUD_VLM.md](CLOUD_VLM.md) for details). Moondream AI cloud is also **rate limited**.
 
-## Running the Server
+## Mentra App Structure and Configuration
+
+The Mentra app is a separate application that provides the frontend interface and handles user authentication for Oneshot Copilot. It's built using Express.js and the Mentra SDK.
+
+### Directory Structure
+
+```
+MentraApp/
+├── src/
+│   ├── index.ts                    # Main application entry point
+│   ├── tools.ts                    # Mentra SDK tools integration
+│   ├── webview.ts                  # Web view management
+│   └── services/
+│       ├── AudioFeedback.ts        # Audio feedback service
+│       └── UserMetadataService.ts  # User metadata handling
+├── views/
+│   ├── login_view.ejs              # Login page template
+│   ├── mainwebview.ejs             # Main interface template
+│   └── taskview.ejs                # Task view template
+├── public/
+│   └── css/
+│       └── style.css               # Application styles
+├── .env                            # Environment configuration (create from .env.example)
+├── .env.example                    # Example environment configuration
+├── package.json                    # Node.js dependencies
+└── tsconfig.json                   # TypeScript configuration
+```
+
+### Mentra App Environment Configuration
+
+Create a `.env` file in the `MentraApp` directory based on `.env.example`:
+
+```env
+# Mentra OS API Key (required)
+# Get this from your Mentra developer account at https://mentra.com
+MENTRAOS_API_KEY=your_mentra_api_key_here
+
+# Port for the Mentra app (default: 3000)
+PORT=3000
+
+# Package name for your Mentra application
+# This should match your app registration in Mentra OS
+PACKAGE_NAME=com.yourcompany.oneshotcopilot
+
+# RTMP stream URL (optional)
+# URL to the RTMP server for streaming video frames
+# Must match the RTSP_STREAM_URL configuration in the main app
+RTMP_URL=rtmp://192.168.1.100:1935/live/oneshot
+```
+
+### Configuration Parameters Explained
+
+- **`MENTRAOS_API_KEY`** (Required): Your Mentra OS API key obtained from the Mentra developer portal
+- **`PORT`** (Optional): The port on which the Mentra app will run (default: 3000)
+- **`PACKAGE_NAME`** (Required): Your application's package identifier in Mentra OS (e.g., `com.yourcompany.oneshotcopilot`)
+- **`RTMP_URL`** (Optional): The RTMP stream URL for video ingestion, should correspond to the RTSP stream configured in the main application
+
+### Dependencies
+
+The Mentra app requires:
+- **Node.js** 18 or higher (up to Node.js 22)
+- **Bun** runtime (recommended) or npm
+- **Mentra SDK** (`@mentra/sdk`)
+- **Express.js** for the web server
+- **EJS** for templating
+
+
+## Running the Application
+
+### 0. Start the VLM Node (Required for Local VLM)
+
+If using the local Auki VLM Node (recommended for development):
+
+1. **Navigate to the VLM Node directory**:
+   ```bash
+   cd vlm-node
+   ```
+
+2. **Start the VLM service with GPU support**:
+   ```bash
+   make docker-gpu
+   ```
+
+3. **Verify it's running** on port 8080:
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+**Note**: If using Moondream AI cloud VLM instead, skip this step and ensure `USE_CLOUD_VLM=true` in your `.env` file.
+
+### 1. Start the Mentra App (Required)
+
+The Mentra app handles user authentication and provides the frontend interface. It must be started before the main server.
+
+1. **Setup Mentra** following the [MentraOS Extended Example tutorial](https://github.com/Mentra-Community/MentraOS-Extended-Example-App/blob/main/README.md)
+
+2. **Configure environment** - Get API keys and configure `.env` in the `MentraApp` directory:
+   ```bash
+   cd MentraApp
+   cp .env.example .env
+   # Edit .env with your Mentra credentials
+   ```
+
+3. **Install dependencies and start**:
+   ```bash
+   bun update
+   bun run dev
+   ```
+
+4. **Expose with Ngrok** - Follow the tutorial to expose your local port with Ngrok
+
+### 2. Start the Oneshot Copilot Server
+
+After Mentra is running, start the main FastAPI server:
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -106,15 +281,10 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 The server will start at `http://localhost:8000`
 Make sure to expose the server with Ngrok 
 
-## Running the Mentra app (required)
-
-Setup your Mentra app following this tutorial: https://github.com/Mentra-Community/MentraOS-Extended-Example-App/blob/main/README.md
-
-After getting the API keys and configure the .env file in the directory ``Oneshot-Copilot/MentraApp``
-
-In the MentraApp directory run ``bun update`` and ``bun run dev`` to start the Mentra app.
-
-The last part is exposing your local port with Ngrok as mentioned in the tutorial.
+**Note**: For development with auto-reload, you can use:
+```bash
+uvicorn app.main:app --reload
+```
 
 ## Running the RTMP Server (required)
 ``docker pull bluenviron/mediamtx``
@@ -124,7 +294,7 @@ Link to the Repo: https://github.com/bluenviron/mediamtx
 
 ## SERVER API Endpoints
 
-### Procedure Control
+### Procedure Control (*not thoroughly tested)
 
 - **POST /start_procedure** - Start a new procedure for a user
   - Parameters: `username`, `procedure_file` (optional)
@@ -134,15 +304,15 @@ Link to the Repo: https://github.com/bluenviron/mediamtx
   - Parameters: `username`
   - Returns: State object with current step info
 
-- **POST /pause** - Pause active procedure
+- ***POST /pause** - Pause active procedure
   - Parameters: `username`
   - Returns: `{ok: true}`
 
-- **POST /resume** - Resume paused procedure
+- ***POST /resume** - Resume paused procedure
   - Parameters: `username`
   - Returns: `{ok: true}`
 
-- **POST /abort** - Abort active procedure
+- ***POST /abort** - Abort active procedure
   - Parameters: `username`
   - Returns: `{ok: true}`
 
@@ -164,6 +334,7 @@ Link to the Repo: https://github.com/bluenviron/mediamtx
   - Returns: `{ok: true}`
 
 ## Usage Example
+Disclaimer: Multi-user has not been tested yet, so far usernames have been hardcoded.
 
 ### 1. Start a procedure
 ```bash
@@ -242,12 +413,9 @@ oneshot_copilot/
         └── pizza_custom.json       # Example procedure
 ```
 
-## Development
+## Authors
 
-The server includes auto-reload for development:
-```bash
-uvicorn app.main:app --reload
-```
+- Mika Haak "@augmentedcamel"
 
 ## License
 

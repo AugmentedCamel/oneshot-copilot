@@ -180,3 +180,5 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 /app/data/frames
+/app/data/user_status
+/app/data/user_status
