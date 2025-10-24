@@ -1,6 +1,9 @@
 # Oneshot Copilot
 
 A FastAPI-based copilot system that helps users complete procedures step-by-step using computer vision analysis.
+## Requirements
+- RTMP server locally hosted `docker pull mediamax/` //todo fill this up
+- Mentra account ``API key`` and ``app.com.domain``
 
 ## Overview
 
@@ -89,7 +92,7 @@ USE_CLOUD_VLM=true
 MOONDREAM_API_KEY=your_moondream_api_key_here
 ```
 
-**Important Note**: Moondream AI cloud does not support negative questions. When using cloud VLM, only positive questions from procedures are sent; negative questions are ignored (see [CLOUD_VLM.md](CLOUD_VLM.md) for details).
+**Important Note**: Moondream AI cloud does not support negative questions. When using cloud VLM, only positive questions from procedures are sent; negative questions are ignored (see [CLOUD_VLM.md](CLOUD_VLM.md) for details). Moondream AI cloud is also **rate limited**.
 
 ## Running the Server
 
@@ -101,7 +104,7 @@ The server will start at `http://localhost:8000`
 
 ## API Endpoints
 
-### Procedure Control
+### Procedure Control (*not thoroughly tested)
 
 - **POST /start_procedure** - Start a new procedure for a user
   - Parameters: `username`, `procedure_file` (optional)
@@ -111,15 +114,15 @@ The server will start at `http://localhost:8000`
   - Parameters: `username`
   - Returns: State object with current step info
 
-- **POST /pause** - Pause active procedure
+- ***POST /pause** - Pause active procedure
   - Parameters: `username`
   - Returns: `{ok: true}`
 
-- **POST /resume** - Resume paused procedure
+- ***POST /resume** - Resume paused procedure
   - Parameters: `username`
   - Returns: `{ok: true}`
 
-- **POST /abort** - Abort active procedure
+- ***POST /abort** - Abort active procedure
   - Parameters: `username`
   - Returns: `{ok: true}`
 
@@ -141,6 +144,7 @@ The server will start at `http://localhost:8000`
   - Returns: `{ok: true}`
 
 ## Usage Example
+Disclaimer: Multi-user has not been tested yet, so far usernames have been hardcoded.
 
 ### 1. Start a procedure
 ```bash
@@ -225,6 +229,10 @@ The server includes auto-reload for development:
 ```bash
 uvicorn app.main:app --reload
 ```
+
+## Authors
+
+- Mika Haak "@augmentedcamel"
 
 ## License
 
