@@ -104,6 +104,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The server will start at `http://localhost:8000`
+Make sure to expose the server with Ngrok 
 
 ## Running the Mentra app (required)
 
@@ -115,8 +116,13 @@ In the MentraApp directory run ``bun update`` and ``bun run dev`` to start the M
 
 The last part is exposing your local port with Ngrok as mentioned in the tutorial.
 
+## Running the RTMP Server (required)
+``docker pull bluenviron/mediamtx``
 
-## API Endpoints
+``docker run --rm -p 1935:1935 -p 8554:8554 -p 8888:8888 bluenviron/mediamtx``
+Link to the Repo: https://github.com/bluenviron/mediamtx
+
+## SERVER API Endpoints
 
 ### Procedure Control
 
