@@ -18,67 +18,67 @@
     {
       "id": 3,
       "name": "Detect keyboard",
-      "status": "done"
+      "status": "in_progress"
     },
     {
       "id": 4,
       "name": "Detect mouse",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 5,
       "name": "Detect chair",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 6,
       "name": "Detect headphones",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 7,
       "name": "Detect notebook",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 8,
       "name": "Detect pen",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 9,
       "name": "Detect coffee mug",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 10,
       "name": "Detect water bottle",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 11,
       "name": "Detect smartphone",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 12,
       "name": "Detect TV or monitor screen",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 13,
       "name": "Detect printer",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 14,
       "name": "Detect plant",
-      "status": "done"
+      "status": "todo"
     },
     {
       "id": 15,
       "name": "Detect lamp",
-      "status": "in_progress"
+      "status": "todo"
     },
     {
       "id": 16,
