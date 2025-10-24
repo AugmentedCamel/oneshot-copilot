@@ -31,16 +31,22 @@ Client ← Progress Updates ← State Machine ← /vlm/callback
 cd oneshot_copilot
 ```
 
-2. **Install dependencies**
+2. **Create a virtual python environment in the root folder and run it.**
+```bash
+venv\Scripts\activate
+```
+
+3. **Install dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Configure environment**
+4. **Configure environment**
 ```bash
 cp .env.example .env
 # Edit .env with your actual URLs
 ```
+
 
 ## Configuration
 
@@ -98,6 +104,17 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The server will start at `http://localhost:8000`
+
+## Running the Mentra app (required)
+
+Setup your Mentra app following this tutorial: https://github.com/Mentra-Community/MentraOS-Extended-Example-App/blob/main/README.md
+
+After getting the API keys and configure the .env file in the directory ``Oneshot-Copilot/MentraApp``
+
+In the MentraApp directory run ``bun update`` and ``bun run dev`` to start the Mentra app.
+
+The last part is exposing your local port with Ngrok as mentioned in the tutorial.
+
 
 ## API Endpoints
 
