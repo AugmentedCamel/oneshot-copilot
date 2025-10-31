@@ -522,10 +522,14 @@ export function setupExpressRoutes(server: AppServer): void {
     }
   }) as any);
 
-  // POST endpoint for step progression with audio feedback
+  // POST endpoint for step progression (no audio feedback)
   app.post('/progress_step', ((req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [PROGRESS_STEP] Request received`);
+    
     try {
-      const { username, text } = req.body;
+      const { username, text, from_step, to_step } = req.body;
+      console.log(`[${timestamp}] [PROGRESS_STEP] username="${username}", text="${text}", from_step=${from_step}, to_step=${to_step}`);
 
       if (!username || typeof username !== 'string') {
         return res.status(400).json({
@@ -534,7 +538,44 @@ export function setupExpressRoutes(server: AppServer): void {
         });
       }
 
+      // Note: TTS is intentionally disabled for progress_step
+      // Step announcements are handled by /on_step endpoint instead
+
+      return res.json({
+        success: true,
+        message: 'Progress notification received',
+        username: username,
+        from_step: from_step,
+        to_step: to_step
+      });
+    } catch (error) {
+      console.error(`[${timestamp}] [PROGRESS_STEP] Error:`, error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
+  }) as any);
+
+  // POST endpoint for step notifications with audio feedback
+  app.post('/on_step', ((req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [ON_STEP] Request received`);
+    
+    try {
+      const { username, text } = req.body;
+      console.log(`[${timestamp}] [ON_STEP] Body: username="${username}", text="${text}"`);
+
+      if (!username || typeof username !== 'string') {
+        console.warn(`[${timestamp}] [ON_STEP] Invalid username: ${username}`);
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid username provided'
+        });
+      }
+
       if (!text || typeof text !== 'string') {
+        console.warn(`[${timestamp}] [ON_STEP] Invalid text: ${text}`);
         return res.status(400).json({
           success: false,
           error: 'Invalid text provided'
@@ -543,35 +584,53 @@ export function setupExpressRoutes(server: AppServer): void {
 
       // Get userId for the username
       const userId = (server as any).getUserIdForUsername(username);
+      console.log(`[${timestamp}] [ON_STEP] Username "${username}" maps to userId: ${userId || 'NOT_FOUND'}`);
+      
       if (!userId) {
+        console.warn(`[${timestamp}] [ON_STEP] User "${username}" not found or not logged in`);
         return res.status(404).json({
           success: false,
           error: 'User not found or not logged in'
         });
       }
 
-      // Get AudioFeedback instance for this user
-      const audioFeedbackMap = (server as any).audioFeedbackMap;
-      const audioFeedback = audioFeedbackMap.get(userId);
+      // Check if TTS is enabled for this user
+      const userMetadataService = (server as any).getUserMetadataService();
+      const settings = userMetadataService.getUserSettings(username);
+      console.log(`[${timestamp}] [ON_STEP] TTS enabled for "${username}": ${settings?.ttsEnabled ?? false}`);
 
-      if (!audioFeedback) {
-        return res.status(404).json({
-          success: false,
-          error: 'Audio feedback service not available for this user'
-        });
+      if (settings?.ttsEnabled) {
+        // Get AudioFeedback instance for this user
+        const audioFeedbackMap = (server as any).audioFeedbackMap;
+        const audioFeedback = audioFeedbackMap.get(userId);
+        console.log(`[${timestamp}] [ON_STEP] AudioFeedback instance found: ${!!audioFeedback}`);
+
+        if (!audioFeedback) {
+          console.error(`[${timestamp}] [ON_STEP] Audio feedback service not available for userId: ${userId}`);
+          return res.status(404).json({
+            success: false,
+            error: 'Audio feedback service not available for this user'
+          });
+        }
+
+        // Speak the text using high priority
+        console.log(`[${timestamp}] [ON_STEP] Speaking text with HIGH priority: "${text}"`);
+        audioFeedback.speak(text, require('./services/AudioFeedback').FeedbackPriority.High);
+        console.log(`[${timestamp}] [ON_STEP] TTS request sent successfully`);
+      } else {
+        console.log(`[${timestamp}] [ON_STEP] TTS disabled for user "${username}", skipping speech`);
       }
 
-      // Speak the text using the AudioFeedback service
-      audioFeedback.speak(text, require('./services/AudioFeedback').FeedbackPriority.Low);
-
+      console.log(`[${timestamp}] [ON_STEP] Success response sent`);
       return res.json({
         success: true,
-        message: 'Audio feedback sent',
+        message: 'Step notification received',
         username: username,
-        text: text
+        text: text,
+        ttsEnabled: settings?.ttsEnabled ?? false
       });
     } catch (error) {
-      console.error('Error in progress_step endpoint:', error);
+      console.error(`[${timestamp}] [ON_STEP] Error:`, error);
       return res.status(500).json({
         success: false,
         error: 'Internal server error'
