@@ -23,21 +23,24 @@ async def on_step_callback(username: str, procedure_id: str, step_id: int, step_
         step_id: Step ID
         step_name: Step name/title
     """
-    logger.info(f"[CALLBACK] on_step - username={username}, procedure={procedure_id}, step_id={step_id}, step_name={step_name}")
+    logger.info(f"[CALLBACK] *** ON_STEP TRIGGERED *** username={username}, procedure={procedure_id}, step_id={step_id}, step_name='{step_name}'")
     try:
         url = f"{settings.MENTRA_URL}/on_step"
-        logger.debug(f"[CALLBACK] Sending on_step notification to {url}")
+        payload = {
+            "username": username,
+            "text": step_name
+        }
+        logger.info(f"[CALLBACK] Sending POST to {url}")
+        logger.info(f"[CALLBACK] Payload: {payload}")
+        
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                url,
-                json={
-                    "username": username,
-                    "text": step_name
-                }
-            )
-            logger.debug(f"[CALLBACK] on_step notification sent - status={response.status_code}")
+            response = await client.post(url, json=payload)
+            logger.info(f"[CALLBACK] *** ON_STEP RESPONSE *** status={response.status_code}, body={response.text[:200]}")
+            
+            if response.status_code != 200:
+                logger.warning(f"[CALLBACK] Non-200 response from on_step - status={response.status_code}, body={response.text}")
     except Exception as e:
-        logger.error(f"[CALLBACK] Failed to send on_step callback - username={username}, error={str(e)}", exc_info=True)
+        logger.error(f"[CALLBACK] *** ON_STEP FAILED *** username={username}, error={str(e)}", exc_info=True)
 
 
 async def on_progress_callback(
