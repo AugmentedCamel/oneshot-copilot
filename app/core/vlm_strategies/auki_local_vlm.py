@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 _websocket_connection: Optional[websockets.WebSocketServerProtocol] = None
 _websocket_url: Optional[str] = None
 _websocket_lock = asyncio.Lock()
+# Serialize send/recv operations on the shared WebSocket to prevent concurrent recv errors
+_websocket_operation_lock = asyncio.Lock()
 
 
 async def get_websocket_connection(ws_url: str) -> websockets.WebSocketServerProtocol:
@@ -164,64 +166,66 @@ class AukiLocalVLMStrategy(VLMStrategy):
             # Get singleton WebSocket connection
             websocket = await get_websocket_connection(self.ws_url)
 
-            # Send the prompt (question only - negatives not supported)
-            logger.debug(f"[AUKI_LOCAL] Sending prompt: {question}")
-            await websocket.send(question)
-            logger.debug(f"[AUKI_LOCAL] Prompt sent")
+            # Serialize WebSocket send/recv to avoid concurrent recv on shared connection
+            async with _websocket_operation_lock:
+                # Send the prompt (question only - negatives not supported)
+                logger.debug(f"[AUKI_LOCAL] Sending prompt: {question}")
+                await websocket.send(question)
+                logger.debug(f"[AUKI_LOCAL] Prompt sent")
 
-            # Send the image as binary data
-            await websocket.send(file_bytes)
-            logger.debug(f"[AUKI_LOCAL] Image data sent ({len(file_bytes)} bytes)")
+                # Send the image as binary data
+                await websocket.send(file_bytes)
+                logger.debug(f"[AUKI_LOCAL] Image data sent ({len(file_bytes)} bytes)")
 
-            # Receive JSON responses with response/done format
-            # Only accumulate responses, don't send partial responses to statemachine
-            full_response = ""
-            message_count = 0
-            timeout_seconds = 60.0  # Configurable timeout
+                # Receive JSON responses with response/done format
+                # Only accumulate responses, don't send partial responses to statemachine
+                full_response = ""
+                message_count = 0
+                timeout_seconds = 60.0  # Configurable timeout
 
-            logger.info(f"[⏱️ TIMING] Waiting for complete WebSocket response...")
+                logger.info(f"[⏱️ TIMING] Waiting for complete WebSocket response...")
 
-            try:
-                while True:
-                    try:
-                        # Receive message with timeout
-                        message = await asyncio.wait_for(
-                            websocket.recv(),
-                            timeout=timeout_seconds
-                        )
-                        message_count += 1
-
-                        # Parse JSON message
+                try:
+                    while True:
                         try:
-                            data = json.loads(message)
-                            logger.debug(f"[AUKI_LOCAL] Received JSON message {message_count}: {data}")
+                            # Receive message with timeout
+                            message = await asyncio.wait_for(
+                                websocket.recv(),
+                                timeout=timeout_seconds
+                            )
+                            message_count += 1
 
-                            # Check if message has expected format
-                            if isinstance(data, dict) and 'response' in data and 'done' in data:
-                                # Accumulate response text (streaming chunks)
-                                full_response += data['response']
+                            # Parse JSON message
+                            try:
+                                data = json.loads(message)
+                                logger.debug(f"[AUKI_LOCAL] Received JSON message {message_count}: {data}")
 
-                                # Only when done=true, we have the complete final response
-                                if data['done']:
-                                    logger.info(f"[AUKI_LOCAL] Complete response received - {message_count} messages, final length: {len(full_response)}")
-                                    logger.debug(f"[AUKI_LOCAL] *** BREAKING FROM RECV LOOP - connection_id={id(websocket)} ***")
-                                    break
-                            else:
-                                logger.warning(f"[AUKI_LOCAL] Unexpected message format: {data}")
+                                # Check if message has expected format
+                                if isinstance(data, dict) and 'response' in data and 'done' in data:
+                                    # Accumulate response text (streaming chunks)
+                                    full_response += data['response']
 
-                        except json.JSONDecodeError as e:
-                            logger.error(f"[AUKI_LOCAL] Failed to parse message as JSON: {message}, error: {e}")
-                            # Continue waiting for more messages
+                                    # Only when done=true, we have the complete final response
+                                    if data['done']:
+                                        logger.info(f"[AUKI_LOCAL] Complete response received - {message_count} messages, final length: {len(full_response)}")
+                                        logger.debug(f"[AUKI_LOCAL] *** BREAKING FROM RECV LOOP - connection_id={id(websocket)} ***")
+                                        break
+                                else:
+                                    logger.warning(f"[AUKI_LOCAL] Unexpected message format: {data}")
 
-                    except asyncio.TimeoutError:
-                        logger.warning(f"[AUKI_LOCAL] Timeout waiting for response after {timeout_seconds}s")
-                        logger.debug(f"[AUKI_LOCAL] *** BREAKING FROM RECV LOOP (TIMEOUT) - connection_id={id(websocket)} ***")
-                        break
+                            except json.JSONDecodeError as e:
+                                logger.error(f"[AUKI_LOCAL] Failed to parse message as JSON: {message}, error: {e}")
+                                # Continue waiting for more messages
 
-                logger.debug(f"[AUKI_LOCAL] *** EXITED RECV LOOP *** - connection_id={id(websocket)}, connection_state={websocket.state if hasattr(websocket, 'state') else 'unknown'}")
+                        except asyncio.TimeoutError:
+                            logger.warning(f"[AUKI_LOCAL] Timeout waiting for response after {timeout_seconds}s")
+                            logger.debug(f"[AUKI_LOCAL] *** BREAKING FROM RECV LOOP (TIMEOUT) - connection_id={id(websocket)} ***")
+                            break
 
-            except websockets.exceptions.ConnectionClosed as e:
-                logger.info(f"[AUKI_LOCAL] *** CONNECTION CLOSED EXCEPTION *** - code={e.code if hasattr(e, 'code') else 'N/A'}, reason={e.reason if hasattr(e, 'reason') else 'N/A'}")
+                    logger.debug(f"[AUKI_LOCAL] *** EXITED RECV LOOP *** - connection_id={id(websocket)}, connection_state={websocket.state if hasattr(websocket, 'state') else 'unknown'}")
+
+                except websockets.exceptions.ConnectionClosed as e:
+                    logger.info(f"[AUKI_LOCAL] *** CONNECTION CLOSED EXCEPTION *** - code={e.code if hasattr(e, 'code') else 'N/A'}, reason={e.reason if hasattr(e, 'reason') else 'N/A'}")
 
             # [TIMING] Record end time
             request_end = perf_counter()
