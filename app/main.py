@@ -32,6 +32,24 @@ def setup_logging():
             format='%(asctime)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
+        # Configure a dedicated logger to allow only VLM response lines
+        class OnlyVLMResponseFilter(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                try:
+                    msg = record.getMessage()
+                except Exception:
+                    return False
+                return isinstance(msg, str) and msg.startswith("[VLM_RESPONSE]")
+
+        vlm_logger = logging.getLogger("app.api.vlm_callback")
+        vlm_logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s', '%Y-%m-%d %H:%M:%S'))
+        handler.addFilter(OnlyVLMResponseFilter())
+        vlm_logger.handlers.clear()
+        vlm_logger.addHandler(handler)
+        vlm_logger.propagate = False
 
 # Initialize logging
 setup_logging()
