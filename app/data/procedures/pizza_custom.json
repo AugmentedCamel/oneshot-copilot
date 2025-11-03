@@ -5,69 +5,49 @@
   "steps": [
     {
       "id": 1,
-      "name": "Show pizza dough",
+      "name": "Show pizza dough pls",
       "positives": [
         "A plain and empty pizza base or dough is clearly visible. Only answer with [yes] or [no]"
       ],
-      "timeout_s": 20,
+      "timeout_s": 200,
       "debounce": {
         "consecutive_yes": 3
       }
     },
     {
       "id": 2,
-      "name": "Add lettuce",
+      "name": "Add ham",
       "positives": [
-        "Green Lettuce leaves are visible on top of the pizza base. Only answer with [yes] or [no]"
+        "Slices of ham are evenly distributed on the pizza. Only answer with [yes] or [no]"
       ],
-      "timeout_s": 20,
+      "timeout_s": 200,
       "debounce": {
-        "consecutive_yes": 3
+        "consecutive_yes": 4
       }
     },
     {
       "id": 3,
-      "name": "Add bacon",
+      "name": "Add mushrooms",
       "positives": [
-        "Do you clearly see slices of ham or bacon, visible on top of green Lettuce. Only answer with [yes] or [no]"
+        "Mushrooms are evenly distributed on the whole surface of the pizza. Only answer with [yes] or [no], Answer No if all the mushrooms are in centered in the middle"
       ],
-      "timeout_s": 20,
+      "negatives": [
+        "Mushrooms are centered in the middle on the pizza. Only answer with [yes] or [no]"
+      ],
+      "timeout_s": 200,
       "debounce": {
         "consecutive_yes": 4
       }
     },
     {
       "id": 4,
-      "name": "Add black olives",
+      "name": "Add oregano",
       "positives": [
-        "At least multiple black olives are visible on top of green Lettuce. Only answer with [yes] or [no]"
+        "At least multiple green organo leaves are clearly visible on top of the pizza. Only answer with [yes] or [no]"
       ],
-      "timeout_s": 20,
+      "timeout_s": 200,
       "debounce": {
         "consecutive_yes": 3
-      }
-    },
-    {
-      "id": 5,
-      "name": "Add chilli red peppers",
-      "positives": [
-        "Are there red peppers are visible in the frame? Only answer with [yes] or [no]"
-        "Are there red peppers are visible in the frame? Only answer with [yes] or [no]"
-      ],
-      "timeout_s": 20,
-      "debounce": {
-        "consecutive_yes": 3
-      }
-    },
-    {
-      "id": 6,
-      "name": "Thumbs up",
-      "positives": [
-        "Do you see a hand very clearly doing a thumbs-up or thumbsup gesture?, Only answer with [yes] or [no]"
-      ],
-      "timeout_s": 20,
-      "debounce": {
-        "consecutive_yes": 2
       }
     }
   ]
