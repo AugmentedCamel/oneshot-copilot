@@ -5,6 +5,7 @@ import asyncio
 import websockets
 from typing import Dict, Optional, Tuple
 from time import perf_counter
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
 from app.core.vlm_strategies.base import VLMStrategy
 
@@ -39,7 +40,7 @@ async def get_websocket_connection(ws_url: str) -> websockets.WebSocketServerPro
         
         # If we have a connection to a different URL, close it first
         if _websocket_connection is not None and _websocket_url != ws_url:
-            logger.info("[WEBSOCKET_CLIENT] URL changed, closing existing connection")
+            logger.info(f"[WEBSOCKET_CLIENT] URL changed, closing existing connection (old_url={_websocket_url}, new_url={ws_url})")
             try:
                 await _websocket_connection.close()
             except Exception as e:
@@ -74,7 +75,7 @@ async def get_websocket_connection(ws_url: str) -> websockets.WebSocketServerPro
 
             _websocket_connection = await websockets.connect(ws_url)
             _websocket_url = ws_url
-            logger.info(f"[WEBSOCKET_CLIENT] *** RECONNECTED AFTER HEALTH CHECK FAILURE *** - connection_id={id(_websocket_connection)}")
+            logger.info(f"[WEBSOCKET_CLIENT] *** RECONNECTED AFTER HEALTH CHECK FAILURE *** - url={ws_url}, connection_id={id(_websocket_connection)}")
 
         logger.debug(f"[WEBSOCKET_CLIENT] *** RETURNING CONNECTION *** - connection_id={id(_websocket_connection)}")
         return _websocket_connection
@@ -122,7 +123,7 @@ class AukiLocalVLMStrategy(VLMStrategy):
             http_url: HTTP URL (e.g., http://localhost:8080)
 
         Returns:
-            WebSocket URL (e.g., ws://localhost:8080/api/v1/ws)
+            WebSocket URL (e.g., ws://localhost:8080/api/v1/ws?num_predict=6)
         """
         # Replace http:// or https:// with ws:// or wss://
         if http_url.startswith("https://"):
@@ -136,6 +137,19 @@ class AukiLocalVLMStrategy(VLMStrategy):
         # Ensure it ends with /api/v1/ws
         if not ws_url.endswith("/api/v1/ws"):
             ws_url = f"{ws_url.rstrip('/')}/api/v1/ws"
+
+        # Append or merge num_predict=6 by default
+        try:
+            parsed = urlparse(ws_url)
+            query_params = dict(parse_qsl(parsed.query))
+            # Only set default if not already provided
+            if "num_predict" not in query_params:
+                query_params["num_predict"] = "4"
+            new_query = urlencode(query_params)
+            ws_url = urlunparse(parsed._replace(query=new_query))
+        except Exception as e:
+            logger.warning(f"[AUKI_LOCAL] Failed to attach num_predict param, falling back. error={e}")
+            ws_url = f"{ws_url}&num_predict=6" if "?" in ws_url else f"{ws_url}?num_predict=6"
 
         return ws_url
     
@@ -156,7 +170,7 @@ class AukiLocalVLMStrategy(VLMStrategy):
         Returns:
             Tuple of (response_json, total_time_ms, server_proc_ms)
         """
-        logger.info(f"[AUKI_LOCAL] Connecting to WebSocket - url={self.ws_url}")
+        logger.info(f"[AUKI_LOCAL] Starting WebSocket connection - resolved_url={self.ws_url}")
         logger.debug(f"[AUKI_LOCAL] Request details - question={question}, file_size={len(file_bytes)} bytes")
         
         # [TIMING] Record overall start time
