@@ -71,17 +71,22 @@ async def vlm_callback(request: Request) -> Dict:
         data = payload.get("data") or {}
         result = data.get("result")              # "yes"/"no" for the positive question
         neg_result = data.get("negative_result") # "yes"/"no" aggregated negatives
+        final = data.get("final")                # "YES"/"NO" combined decision (new field)
         
-        logger.info(f"[VLM_CALLBACK] *** EXTRACTED FIELDS *** - result={result}, negative_result={neg_result}")
+        logger.info(f"[VLM_CALLBACK] *** EXTRACTED FIELDS *** - result={result}, negative_result={neg_result}, final={final}")
         
         # Validate at least one field exists
-        if result is None and neg_result is None:
+        if result is None and neg_result is None and final is None:
             logger.warning(f"[VLM_CALLBACK] Missing result fields in body")
-            raise HTTPException(status_code=400, detail="Missing result fields: expected 'data.result' or 'data.negative_result'")
+            raise HTTPException(status_code=400, detail="Missing result fields: expected 'data.result', 'data.negative_result', or 'data.final'")
         
-        # Use result as the decision (as per new payload structure)
-        decision_str = result
-        logger.info(f"[VLM_CALLBACK] *** DECISION SELECTED *** - decision={decision_str}")
+        # Use "final" field if available (combined positive & negative logic), otherwise fall back to "result"
+        if final is not None:
+            decision_str = final
+            logger.info(f"[VLM_CALLBACK] *** DECISION SELECTED (using 'final' field) *** - decision={decision_str}")
+        else:
+            decision_str = result
+            logger.info(f"[VLM_CALLBACK] *** DECISION SELECTED (using 'result' field) *** - decision={decision_str}")
         
         # Convert "yes"/"no" to Decision enum
         try:

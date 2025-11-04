@@ -26,30 +26,43 @@ class MoondreamVLMStrategy(VLMStrategy):
         self,
         file_bytes: bytes,
         question: str,
-        negatives: list[str]
+        negatives: list[str],
+        bounding_questions: list[str] = None,
+        debug: bool = False
     ) -> Tuple[Dict, float, Optional[float]]:
         """
         Send request to Moondream AI cloud VLM service.
         
         API Documentation: https://docs.moondream.ai/api
         
-        ⚠️ LIMITATION: Moondream AI cloud does not support negative questions.
-        Only the positive question is sent; negatives parameter is ignored.
+        ⚠️ LIMITATION: Moondream AI cloud does not support negative questions or bounding boxes.
+        Only the positive question is sent; negatives and bounding_questions parameters are ignored.
         
         Args:
             file_bytes: Image file bytes
             question: The positive question to ask
             negatives: List of negative questions (IGNORED for Moondream AI)
+            bounding_questions: List of items to detect bounding boxes for (IGNORED for Moondream AI)
+            debug: Enable debug logging to file (IGNORED for Moondream AI - use cloud provider logs)
             
         Returns:
             Tuple of (response_json, http_post_ms, server_proc_ms)
         """
+        if debug:
+            logger.info("[MOONDREAM] Debug mode requested but not implemented for cloud provider - check Moondream AI dashboard for logs")
         from app.core.vlm_client import get_http_client
         
         if negatives:
             logger.warning(
                 f"[MOONDREAM] Moondream AI cloud does not support negative questions. "
                 f"Ignoring {len(negatives)} negative question(s). "
+                f"Only using positive question: '{question}'"
+            )
+        
+        if bounding_questions:
+            logger.warning(
+                f"[MOONDREAM] Moondream AI cloud does not support bounding box detection. "
+                f"Ignoring {len(bounding_questions)} bounding question(s). "
                 f"Only using positive question: '{question}'"
             )
         

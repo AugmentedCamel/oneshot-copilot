@@ -43,8 +43,8 @@ OnStepFn = Callable[[str, str, int, str], None]
 ProgressStepFn = Callable[[str, str, Optional[int], Optional[int]], None]
 # (username, procedure_id, from_step_id, to_step_id) ; to_step_id None => finished
 
-PostToVLMFn = Callable[[str, str, Dict, str, str], None]
-# (frame_id, procedure_id, step_def, username, idem_key)
+PostToVLMFn = Callable[[str, str, Dict, str, str, bool], None]
+# (frame_id, procedure_id, step_def, username, idem_key, debug)
 
 
 # ====== Data models (you load procedures as dicts from your JSON) ====================
@@ -57,6 +57,8 @@ class StepDef:
     negatives: List[str]
     timeout_s: int
     debounce_consecutive_yes: int  # expect 2 for now
+    bounding_questions: List[str] = field(default_factory=list)  # optional: items to detect bounding boxes for
+    debug: bool = False  # optional: enable debug logging to file
 
 
 @dataclass
@@ -526,8 +528,9 @@ class UserStateMachine:
         # this just gives you a single call-site to hook into.
         # idem_key could be derived from frame_id or generated here.
         idem_key = frame_id
-        logger.info(f"[STATE_MACHINE] *** CALLING VLM POST FUNCTION *** - frame_id={frame_id}, procedure={u.procedure.id}, username={u.username}, idem_key={idem_key}")
-        self._post_to_vlm(frame_id, u.procedure.id, step_to_dict(step), u.username, idem_key)
+        debug = step.debug if step else False
+        logger.info(f"[STATE_MACHINE] *** CALLING VLM POST FUNCTION *** - frame_id={frame_id}, procedure={u.procedure.id}, username={u.username}, idem_key={idem_key}, debug={debug}")
+        self._post_to_vlm(frame_id, u.procedure.id, step_to_dict(step), u.username, idem_key, debug)
         logger.info(f"[STATE_MACHINE] *** VLM POST FUNCTION RETURNED *** - frame_id={frame_id}, username={u.username}")
 
 
@@ -539,8 +542,10 @@ def step_to_dict(s: StepDef) -> Dict:
         "name": s.name,
         "positives": s.positives,
         "negatives": s.negatives,
+        "bounding_questions": s.bounding_questions,
         "timeout_s": s.timeout_s,
         "debounce": {"consecutive_yes": s.debounce_consecutive_yes},
+        "debug": s.debug,
     }
 
 
@@ -553,13 +558,27 @@ def procedure_from_json(j: Dict) -> ProcedureDef:
         negatives_value = st.get("negatives", [])
         logger.debug(f"[PROCEDURE_PARSE] Parsing step {st['id']}: has_negatives={has_negatives}, using_default={'[]' if not has_negatives else 'from_json'}")
         
+        # Check if bounding_questions field exists
+        has_bounding = "bounding_questions" in st
+        bounding_value = st.get("bounding_questions", [])
+        if has_bounding:
+            logger.debug(f"[PROCEDURE_PARSE] Step {st['id']} has bounding_questions: {bounding_value}")
+        
+        # Check if debug field exists
+        has_debug = "debug" in st
+        debug_value = st.get("debug", False)
+        if has_debug:
+            logger.debug(f"[PROCEDURE_PARSE] Step {st['id']} has debug flag: {debug_value}")
+        
         steps.append(StepDef(
             id=st["id"],
             name=st["name"],
             positives=st["positives"],
             negatives=negatives_value,
+            bounding_questions=bounding_value,
             timeout_s=st["timeout_s"],
             debounce_consecutive_yes=st["debounce"]["consecutive_yes"],
+            debug=debug_value,
         ))
     logger.info(f"[PROCEDURE_PARSE] Successfully parsed {len(steps)} steps from JSON")
     return ProcedureDef(

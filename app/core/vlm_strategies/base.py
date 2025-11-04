@@ -11,7 +11,9 @@ class VLMStrategy(ABC):
         self,
         file_bytes: bytes,
         question: str,
-        negatives: list[str]
+        negatives: list[str],
+        bounding_questions: list[str] = None,
+        debug: bool = False
     ) -> Tuple[Dict, float, Optional[float]]:
         """
         Send query to VLM service.
@@ -20,6 +22,8 @@ class VLMStrategy(ABC):
             file_bytes: Image file bytes
             question: The positive question to ask
             negatives: List of negative questions
+            bounding_questions: List of items to detect bounding boxes for (optional)
+            debug: Enable debug logging to file (optional)
             
         Returns:
             Tuple of (response_json, http_post_ms, server_proc_ms)

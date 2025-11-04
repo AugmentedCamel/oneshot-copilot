@@ -11,6 +11,25 @@ from app.core.vlm_strategies.base import VLMStrategy
 
 logger = logging.getLogger(__name__)
 
+
+def _to_bool(val):
+    """
+    Normalize various value types to boolean.
+    Accepts True/False, 'yes'/'no', 'y'/'n', 'true'/'false', '1'/'0'.
+    Anything unrecognized -> False by default.
+    """
+    if isinstance(val, bool):
+        return val
+    if val is None:
+        return False
+    s = str(val).strip().lower()
+    if s in {"yes", "y", "true", "1"}:
+        return True
+    if s in {"no", "n", "false", "0"}:
+        return False
+    return False
+
+
 # ============================================================================
 # SINGLETON WEBSOCKET CONNECTION
 # A single persistent WebSocket connection for all VLM requests to enable
@@ -157,19 +176,40 @@ class AukiLocalVLMStrategy(VLMStrategy):
         self,
         file_bytes: bytes,
         question: str,
-        negatives: list[str]
+        negatives: list[str],
+        bounding_questions: list[str] = None,
+        debug: bool = False
     ) -> Tuple[Dict, float, Optional[float]]:
         """
         Send WebSocket request to Auki Local VLM service.
         
+        ⚠️ LIMITATION: Auki Local VLM does not support negative questions or bounding boxes via WebSocket.
+        Only the positive question is sent; negatives and bounding_questions parameters are ignored.
+        
         Args:
             file_bytes: Image file bytes
             question: The question to ask
-            negatives: List of negative questions
+            negatives: List of negative questions (IGNORED for Auki Local VLM)
+            bounding_questions: List of items to detect bounding boxes for (IGNORED for Auki Local VLM)
+            debug: Enable debug logging to file (IGNORED for Auki Local VLM WebSocket)
             
         Returns:
             Tuple of (response_json, total_time_ms, server_proc_ms)
         """
+        if debug:
+            logger.info("[AUKI_LOCAL] Debug mode requested but not implemented for WebSocket provider")
+        if negatives:
+            logger.warning(
+                f"[AUKI_LOCAL] Auki Local VLM WebSocket does not support negative questions. "
+                f"Ignoring {len(negatives)} negative question(s)."
+            )
+        
+        if bounding_questions:
+            logger.warning(
+                f"[AUKI_LOCAL] Auki Local VLM WebSocket does not support bounding box detection. "
+                f"Ignoring {len(bounding_questions)} bounding question(s)."
+            )
+        
         logger.info(f"[AUKI_LOCAL] Starting WebSocket connection - resolved_url={self.ws_url}")
         logger.debug(f"[AUKI_LOCAL] Request details - question={question}, file_size={len(file_bytes)} bytes")
         
@@ -256,6 +296,39 @@ class AukiLocalVLMStrategy(VLMStrategy):
                 "question": question,
                 "message_count": message_count
             }
+            
+            # === NEGATIVE QUESTION DECISION LOGIC ===
+            # Extract positive result
+            positive_raw = response_json.get("result") or response_json.get("answer", "")
+            positive_is_yes = _to_bool(positive_raw)
+            
+            # Extract negatives (can be dict or list)
+            neg_block = response_json.get("negative_results") or response_json.get("negatives")
+            
+            neg_values = []
+            if isinstance(neg_block, dict):
+                neg_values = list(neg_block.values())
+            elif isinstance(neg_block, list):
+                neg_values = list(neg_block)
+            elif neg_block is None:
+                neg_values = []
+            else:
+                # Unexpected shape: treat as a single value
+                neg_values = [neg_block]
+            
+            # Any negative marked YES?
+            any_negative_yes = any(_to_bool(v) for v in neg_values)
+            
+            # Final decision rule: YES only if positive YES AND no negatives YES
+            final_yes = bool(positive_is_yes and not any_negative_yes)
+            final_str = "YES" if final_yes else "NO"
+            
+            # Add final decision to response
+            response_json["final"] = final_str
+            
+            # Log the decision
+            logger.info(f"[AUKI_LOCAL_VLM] Final decision: {final_str} (positive={positive_is_yes}, any_negative_yes={any_negative_yes})")
+            # === END NEGATIVE QUESTION DECISION LOGIC ===
             
             # Server processing time not directly available from WebSocket streaming
             # The total_time_ms includes connection, sending, and receiving time

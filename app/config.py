@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 # Set to True to enable detailed debug logging throughout the application.
 # Set to False to minimize logging output to only warnings and errors.
 # ============================================================================
-VERBOSE_LOGGING = False
+VERBOSE_LOGGING = True
 
 # ============================================================================
 # HTTP CLIENT CONFIGURATION
@@ -35,6 +35,12 @@ METRICS_HISTORY_SIZE = 1000  # Number of metrics to keep in memory
 # ============================================================================
 SAVE_FRAMES_TO_DISK = False  # Set to True to save all frames to disk
 FRAMES_DIRECTORY = "app/data/frames"  # Directory to save frames
+
+# ============================================================================
+# VLM DEBUG CONFIGURATION
+# Settings for debugging VLM requests and responses
+# ============================================================================
+VLM_DEBUG_LOG_FILE = "vlm_debug.log"  # File to log debug VLM responses
 
 
 class Settings(BaseSettings):

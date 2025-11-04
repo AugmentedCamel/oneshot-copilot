@@ -142,21 +142,25 @@ async def post_to_vlm_multipart(
     file_bytes: bytes,
     question: str,
     negatives: list[str],
-    vlm_url: str
+    vlm_url: str,
+    bounding_questions: list[str] = None,
+    debug: bool = False
 ) -> Tuple[Dict, float, Optional[float]]:
     """
     Send multipart request to VLM using the configured strategy.
     
     Routes to appropriate VLM implementation based on VLM_PROVIDER setting:
-    - "local": Local VLM service (supports negative questions)
-    - "moondream": Moondream AI cloud (ignores negative questions)
-    - "auki_local": Auki Local VLM service (supports negative questions)
+    - "local": Local VLM service (supports negative questions and bounding boxes)
+    - "moondream": Moondream AI cloud (ignores negative questions and bounding boxes)
+    - "auki_local": Auki Local VLM service (ignores negative questions and bounding boxes)
     
     Args:
         file_bytes: Image file bytes
         question: The positive question to ask
         negatives: List of negative questions (support depends on provider)
         vlm_url: Base URL (used by some strategies, ignored by others)
+        bounding_questions: List of items to detect bounding boxes for (support depends on provider)
+        debug: Enable debug logging to file (support depends on provider)
         
     Returns:
         Tuple of (response_json, http_post_ms, server_proc_ms)
@@ -168,5 +172,7 @@ async def post_to_vlm_multipart(
     return await strategy.query(
         file_bytes=file_bytes,
         question=question,
-        negatives=negatives
+        negatives=negatives,
+        bounding_questions=bounding_questions,
+        debug=debug
     )

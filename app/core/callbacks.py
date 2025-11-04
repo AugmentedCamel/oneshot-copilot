@@ -82,7 +82,8 @@ async def post_to_vlm_callback(
     procedure_id: str,
     step_def: Dict,
     username: str,
-    idem_key: str
+    idem_key: str,
+    debug: bool = False
 ) -> None:
     """
     Dispatch frame to VLM for synchronous analysis via /qa endpoint.
@@ -93,6 +94,7 @@ async def post_to_vlm_callback(
         step_def: Step definition dict with positives, negatives, etc.
         username: Username
         idem_key: Idempotency key
+        debug: Enable debug logging to file (optional)
     """
     # [TIMING] Record callback start time
     callback_start = perf_counter()
@@ -123,12 +125,15 @@ async def post_to_vlm_callback(
         logger.debug(f"[CALLBACK] Frame retrieved successfully - frame_id={frame_id}, size={len(frame_bytes)} bytes")
         logger.info(f"[⏱️ TIMING] Frame retrieval completed - duration={frame_retrieve_ms:.3f}ms")
         
-        # [TIMING] Extract question and negatives from step definition
+        # [TIMING] Extract question, negatives, and bounding_questions from step definition
         request_prep_start = perf_counter()
         question = step_def["positives"][0]
         negatives = step_def["negatives"]
+        bounding_questions = step_def.get("bounding_questions", [])
+        # Extract debug flag from step definition, default to False if not present
+        step_debug = step_def.get("debug", False) or debug
         request_prep_ms = (perf_counter() - request_prep_start) * 1000
-        logger.info(f"[CALLBACK] VLM request params - question='{question}', negatives={negatives}")
+        logger.info(f"[CALLBACK] VLM request params - question='{question}', negatives={negatives}, bounding_questions={bounding_questions}, debug={step_debug}")
         logger.info(f"[⏱️ TIMING] Request preparation completed - duration={request_prep_ms:.3f}ms")
         
         # [TIMING] Send to VLM /qa endpoint (synchronous response)
@@ -138,7 +143,9 @@ async def post_to_vlm_callback(
             file_bytes=frame_bytes,
             question=question,
             negatives=negatives,
-            vlm_url=settings.VLM_URL
+            vlm_url=settings.VLM_URL,
+            bounding_questions=bounding_questions,
+            debug=step_debug
         )
         vlm_request_ms = (perf_counter() - vlm_request_start) * 1000
         logger.info(f"[CALLBACK] *** VLM RESPONSE RECEIVED *** - frame_id={frame_id}, http_post_ms={http_post_ms:.2f}ms")
@@ -150,41 +157,48 @@ async def post_to_vlm_callback(
         
         # [TIMING] Parse the response structure - handle both nested and flat formats
         response_parse_start = perf_counter()
-        # Try nested format first: {"data": {"result": "yes"}}
+        # Try nested format first: {"data": {"result": "yes", "final": "YES"}}
         data = response_json.get("data") if isinstance(response_json, dict) else None
         if data and isinstance(data, dict):
             result = data.get("result")
             neg_result = data.get("negative_result")
+            final = data.get("final")
             logger.info(f"[CALLBACK] *** USING NESTED FORMAT *** - data={data}")
         else:
-            # Fall back to flat format: {"result": "yes"}
+            # Fall back to flat format: {"result": "yes", "final": "YES"}
             result = response_json.get("result") if isinstance(response_json, dict) else None
             neg_result = response_json.get("negative_result") if isinstance(response_json, dict) else None
-            logger.info(f"[CALLBACK] *** USING FLAT FORMAT *** - result={result}, neg_result={neg_result}")
+            final = response_json.get("final") if isinstance(response_json, dict) else None
+            logger.info(f"[CALLBACK] *** USING FLAT FORMAT *** - result={result}, neg_result={neg_result}, final={final}")
         
-        logger.info(f"[CALLBACK] *** EXTRACTED FIELDS *** - result={result}, negative_result={neg_result}, result_type={type(result)}")
+        logger.info(f"[CALLBACK] *** EXTRACTED FIELDS *** - result={result}, negative_result={neg_result}, final={final}, result_type={type(result)}")
         
-        # Convert "yes"/"no" to Decision enum with robust string handling
-        if result is None:
-            logger.warning(f"[CALLBACK] Result is None, using default Decision.NO")
+        # Determine which field to use: prefer "final" (combined logic) over "result"
+        decision_field = final if final is not None else result
+        field_source = "final" if final is not None else "result"
+        logger.info(f"[CALLBACK] *** USING '{field_source}' FIELD FOR DECISION *** - value={decision_field}")
+        
+        # Convert "yes"/"no"/"YES"/"NO" to Decision enum with robust string handling
+        if decision_field is None:
+            logger.warning(f"[CALLBACK] Decision field is None, using default Decision.NO")
             decision = Decision.NO
-        elif isinstance(result, str):
-            result_clean = result.lower().strip()
+        elif isinstance(decision_field, str):
+            decision_clean = decision_field.lower().strip()
             # Remove surrounding brackets if present (VLM may return [yes] or [no])
-            if result_clean.startswith('[') and result_clean.endswith(']'):
-                result_clean = result_clean[1:-1].strip()
+            if decision_clean.startswith('[') and decision_clean.endswith(']'):
+                decision_clean = decision_clean[1:-1].strip()
             
-            if result_clean in ("yes", "true", "1"):
+            if decision_clean in ("yes", "true", "1"):
                 decision = Decision.YES
-                logger.info(f"[CALLBACK] ✓ Decision parsed: '{result}' -> YES")
-            elif result_clean in ("no", "false", "0"):
+                logger.info(f"[CALLBACK] ✓ Decision parsed from '{field_source}': '{decision_field}' -> YES")
+            elif decision_clean in ("no", "false", "0"):
                 decision = Decision.NO
-                logger.info(f"[CALLBACK] Decision parsed: '{result}' -> NO")
+                logger.info(f"[CALLBACK] Decision parsed from '{field_source}': '{decision_field}' -> NO")
             else:
-                logger.error(f"[CALLBACK] Unexpected VLM result: '{result}', defaulting to NO")
+                logger.error(f"[CALLBACK] Unexpected VLM {field_source}: '{decision_field}', defaulting to NO")
                 decision = Decision.NO
         else:
-            logger.error(f"[CALLBACK] Invalid decision type: {type(result)}, value={result}, defaulting to NO")
+            logger.error(f"[CALLBACK] Invalid decision type from '{field_source}': {type(decision_field)}, value={decision_field}, defaulting to NO")
             decision = Decision.NO
         
         response_parse_ms = (perf_counter() - response_parse_start) * 1000
@@ -308,12 +322,12 @@ def on_progress_sync(username: str, procedure_id: str, from_step: Optional[int],
     asyncio.create_task(on_progress_callback(username, procedure_id, from_step, to_step))
 
 
-def post_to_vlm_sync(frame_id: str, procedure_id: str, step_def: Dict, username: str, idem_key: str) -> None:
+def post_to_vlm_sync(frame_id: str, procedure_id: str, step_def: Dict, username: str, idem_key: str, debug: bool = False) -> None:
     """Synchronous wrapper for post_to_vlm_callback."""
     logger.debug(f"[CALLBACK] post_to_vlm_sync wrapper called - creating async task")
-    logger.debug(f"[CALLBACK] Task context - frame_id={frame_id}, username={username}, procedure={procedure_id}, step={step_def.get('id')}")
+    logger.debug(f"[CALLBACK] Task context - frame_id={frame_id}, username={username}, procedure={procedure_id}, step={step_def.get('id')}, debug={debug}")
     try:
-        task = asyncio.create_task(post_to_vlm_callback(frame_id, procedure_id, step_def, username, idem_key))
+        task = asyncio.create_task(post_to_vlm_callback(frame_id, procedure_id, step_def, username, idem_key, debug))
         logger.debug(f"[CALLBACK] Async task created successfully - task={task}")
     except Exception as e:
         logger.error(f"[CALLBACK] CRITICAL: Failed to create async task - frame_id={frame_id}, error={str(e)}", exc_info=True)

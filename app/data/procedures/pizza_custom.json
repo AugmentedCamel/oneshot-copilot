@@ -29,21 +29,23 @@
       "id": 3,
       "name": "Add mushrooms",
       "positives": [
-        "Mushrooms are evenly distributed on the whole surface of the pizza. Only answer with [yes] or [no], Answer No if all the mushrooms are in centered in the middle"
+        "Do you see sliced mushrooms spread evenly across the pizza base, covering a large part of it. Only answer with [yes] or [no]"
       ],
       "negatives": [
-        "Mushrooms are centered in the middle on the pizza. Only answer with [yes] or [no]"
+        "are the mushrooms incorrectly placed in the center of the pizza, covering a small part. Only answer with [yes] or [no]"
       ],
+      "bounding_questions": ["mushroom"],
       "timeout_s": 200,
       "debounce": {
-        "consecutive_yes": 4
-      }
+        "consecutive_yes":3
+      },
+      "debug": true
     },
     {
       "id": 4,
-      "name": "Add oregano",
+      "name": "Add basil",
       "positives": [
-        "At least multiple green organo leaves are clearly visible on top of the pizza. Only answer with [yes] or [no]"
+        "Do you see at least multiple green basil leaves are clearly visible on top of the pizza. Only answer with [yes] or [no]"
       ],
       "timeout_s": 200,
       "debounce": {
