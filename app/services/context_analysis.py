@@ -120,17 +120,53 @@ class ContextAnalysisService:
         else:
             logger.warning(f"[CONTEXT_ANALYSIS] Unexpected bounding_boxes format: {type(bounding_boxes)}")
 
-    def analyze_clustering(self, bounding_boxes: List[Dict]) -> Dict:
+    def analyze_clustering(self, target_item: str, bounding_boxes: Dict) -> Dict:
         """
         Analyze if detected items in bounding boxes are clustered.
-
-        TODO: Future implementation
+        
+        Simple implementation: counts bounding boxes for the target item.
+        - If count > 9: NO cluster detected (well distributed)
+        - If count <= 9: Cluster detected (items are grouped)
 
         Args:
-            bounding_boxes: List of bounding box dictionaries
+            target_item: The item name to analyze (e.g., "mushroom")
+            bounding_boxes: Dictionary of bounding boxes from VLM response
+                           Format: {"item_name": [{"x": ..., "y": ..., ...}, ...]}
 
         Returns:
-            Dictionary with clustering analysis results
+            Dictionary with clustering analysis results:
+            {
+                "is_clustered": bool,  # True if cluster detected
+                "count": int,          # Number of detections
+                "threshold": int,      # Threshold used (9)
+                "target_item": str     # Item analyzed
+            }
         """
-        logger.info("[CONTEXT_ANALYSIS] Clustering analysis - NOT YET IMPLEMENTED")
-        return {"implemented": False}
+        logger.info(f"[CONTEXT_ANALYSIS] Analyzing clustering for target_item='{target_item}'")
+        
+        # Get bounding boxes for the target item
+        item_boxes = bounding_boxes.get(target_item, [])
+        
+        # Count the number of bounding boxes
+        count = len(item_boxes) if isinstance(item_boxes, list) else 0
+        
+        # Simple clustering logic:
+        # > 9 detections means well distributed (NOT clustered)
+        # <= 9 detections means items are grouped (IS clustered)
+        threshold = 9
+        is_clustered = count <= threshold
+        
+        result = {
+            "is_clustered": is_clustered,
+            "count": count,
+            "threshold": threshold,
+            "target_item": target_item
+        }
+        
+        logger.info(
+            f"[CONTEXT_ANALYSIS] Clustering result: "
+            f"target='{target_item}', count={count}, "
+            f"is_clustered={is_clustered} (threshold={threshold})"
+        )
+        
+        return result
