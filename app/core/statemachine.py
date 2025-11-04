@@ -6,6 +6,9 @@ from typing import Callable, Dict, List, Optional, Tuple
 import time
 import logging
 
+# Import rule models
+from app.models.rules import RuleDef, RuleValidationResult, FailureBehavior
+
 # Import perf_counter for high-precision timing
 from time import perf_counter
 
@@ -18,6 +21,22 @@ try:
 except ImportError:
     logger.warning("Status service not available - status files will not be saved")
     _status_service_available = False
+
+# Import context analysis service
+try:
+    from app.services.context_analysis import ContextAnalysisService
+    _context_analysis_available = True
+except ImportError:
+    logger.warning("Context analysis service not available")
+    _context_analysis_available = False
+
+# Import rule validation service
+try:
+    from app.services.rule_validation import RuleValidationService
+    _rule_validation_available = True
+except ImportError:
+    logger.warning("Rule validation service not available")
+    _rule_validation_available = False
 
 
 # ====== Public types & callbacks =====================================================
@@ -59,6 +78,18 @@ class StepDef:
     debounce_consecutive_yes: int  # expect 2 for now
     bounding_questions: List[str] = field(default_factory=list)  # optional: items to detect bounding boxes for
     debug: bool = False  # optional: enable debug logging to file
+    rules: List[RuleDef] = field(default_factory=list)  # optional: validation rules for this step
+    
+    def has_rules(self) -> bool:
+        """Check if this step has any rules defined."""
+        return len(self.rules) > 0
+    
+    def get_blocking_rules(self) -> List[RuleDef]:
+        """Get all rules with BLOCK failure behavior."""
+        return [
+            rule for rule in self.rules
+            if rule.enabled and rule.failure_behavior == FailureBehavior.BLOCK
+        ]
 
 
 @dataclass
@@ -70,11 +101,23 @@ class ProcedureDef:
 
 
 @dataclass
+class RuleRuntime:
+    """Runtime state for rule validation."""
+    results: List[RuleValidationResult] = field(default_factory=list)
+    last_validation_ms: Optional[int] = None
+    
+    def has_blocking_failures(self) -> bool:
+        """Check if any rule results are blocking failures."""
+        return any(r.is_blocking() for r in self.results)
+
+
+@dataclass
 class StepRuntime:
     id: int
     started_at_ms: int
     timeout_at_ms: int
     yes_consecutive: int = 0
+    rule_runtime: Optional[RuleRuntime] = None
 
 
 @dataclass
@@ -118,6 +161,15 @@ class UserStateMachine:
         self._on_step = on_step
         self._on_progress = on_progress_step
         self._post_to_vlm = post_to_vlm
+        
+        # Initialize context analysis service if available
+        if _context_analysis_available:
+            self._context_analysis = ContextAnalysisService()
+            logger.info("Context analysis service initialized")
+        else:
+            self._context_analysis = None
+            logger.warning("Context analysis service not available")
+        
         logger.debug("StateMachine initialized with single-frame buffering")
 
     # ---------- helpers
@@ -310,12 +362,18 @@ class UserStateMachine:
             logger.debug(f"[STATE_MACHINE] No inflight request, dispatching immediately - username={username}, frame_id={frame_id}")
             self._maybe_dispatch(u, frame_id)
 
-    def vlm_decision(self, username: str, frame_id: str, decision: Decision) -> None:
+    def vlm_decision(self, username: str, frame_id: str, decision: Decision, vlm_response: Optional[Dict] = None) -> None:
         """
         Handle callback from VLM.
         - Only affects current step.
         - YES increments consecutive counter; others reset it.
         - On target YES count, progress step and emit progress + on_step/complete.
+        
+        Args:
+            username: Username for the session
+            frame_id: Frame ID that was processed
+            decision: Decision enum (YES/NO/UNCERTAIN/NOT_APPLICABLE)
+            vlm_response: Optional full VLM response data for context analysis
         """
         # [TIMING] Record VLM response time and start of decision processing
         response_time = perf_counter()
@@ -323,6 +381,65 @@ class UserStateMachine:
         
         logger.info(f"[STATE_MACHINE] Processing VLM decision - username={username}, frame_id={frame_id}, decision={decision.value}")
         u = self._get_or_create_user(username)
+
+        # Perform context analysis if VLM response data is available and service is initialized
+        if vlm_response and self._context_analysis:
+            try:
+                step_def = self._current_step_def(u)
+                step_name = step_def.name if step_def else None
+                self._context_analysis.analyze(
+                    username=username,
+                    frame_id=frame_id,
+                    vlm_response=vlm_response,
+                    step_name=step_name
+                )
+            except Exception as e:
+                logger.error(f"[VLM_DECISION] Context analysis failed - error={str(e)}", exc_info=True)
+                # Continue with decision processing even if analysis fails
+        
+        # Perform rule validation if VLM response data is available, service is initialized, and step has rules
+        step = self._current_step_def(u)
+        if step and step.has_rules() and vlm_response and self._rule_validation:
+            try:
+                logger.info(f"[VLM_DECISION] Validating {len(step.rules)} rule(s) for step {step.name}")
+                
+                # Initialize rule_runtime if needed
+                if u.step_rt and u.step_rt.rule_runtime is None:
+                    u.step_rt.rule_runtime = RuleRuntime()
+                
+                # Build context dictionary for rule validation
+                context = {
+                    "username": username,
+                    "frame_id": frame_id,
+                    "step_name": step.name,
+                    "step_id": step.id,
+                    "vlm_response": vlm_response
+                }
+                
+                # Validate rules
+                validation_start_ms = self._now_ms()
+                results = self._rule_validation.validate_rules(step.rules, context)
+                validation_duration_ms = self._now_ms() - validation_start_ms
+                
+                # Store results in step runtime
+                if u.step_rt and u.step_rt.rule_runtime:
+                    u.step_rt.rule_runtime.results = results
+                    u.step_rt.rule_runtime.last_validation_ms = validation_duration_ms
+                
+                # Log summary of rule validation results
+                blocking_failures = [r for r in results if r.is_blocking()]
+                if blocking_failures:
+                    failed_names = [r.rule_name for r in blocking_failures]
+                    logger.warning(
+                        f"[VLM_DECISION] {len(blocking_failures)} blocking rule(s) failed - "
+                        f"username={username}, step={step.name}, failed={failed_names}"
+                    )
+                else:
+                    logger.info(f"[VLM_DECISION] All rules passed - username={username}, step={step.name}")
+                    
+            except Exception as e:
+                logger.error(f"[VLM_DECISION] Rule validation failed - error={str(e)}", exc_info=True)
+                # Continue with decision processing even if rule validation fails
         
         # [TIMING] Calculate and log timing metrics
         if u.frame_ingest_time and u.vlm_dispatch_time:
@@ -370,35 +487,50 @@ class UserStateMachine:
             u.step_rt.yes_consecutive += 1
             logger.debug(f"YES decision - username={username}, consecutive_yes={u.step_rt.yes_consecutive}/{step.debounce_consecutive_yes}")
             if u.step_rt.yes_consecutive >= step.debounce_consecutive_yes:
-                # [TIMING] Progress to next step (or complete)
-                step_progress_start = perf_counter()
-                from_id = step.id
-                next_index = u.current_index + 1
-                if next_index < len(u.procedure.steps):
-                    u.current_index = next_index
-                    next_step = self._current_step_def(u)
-                    u.step_rt = self._init_step_rt(next_step, self._now_ms())
-                    # Clear inflight_frame_id when progressing to new step (old frame no longer relevant)
-                    u.inflight_frame_id = None
-                    logger.info(f"[STATE_MACHINE] Step progression - username={username}, from_step={from_id}, to_step={next_step.id}, cleared_inflight_frame")
-                    self._on_progress(u.username, u.procedure.id, from_id, next_step.id)
-                    logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={next_step.id}, step_name={next_step.name}")
-                    self._on_step(u.username, u.procedure.id, next_step.id, next_step.name)
-                    # Save status after step progression
-                    self._save_status_file(username)
-                    step_progress_ms = (perf_counter() - step_progress_start) * 1000
-                    logger.info(f"[⏱️ TIMING] Step progression completed - duration={step_progress_ms:.3f}ms")
-                else:
-                    # Completed
-                    logger.info(f"[STATE_MACHINE] Procedure completed - username={username}, final_step={from_id}")
-                    self._on_progress(u.username, u.procedure.id, from_id, None)
-                    u.state = UserState.COMPLETED
-                    u.step_rt = None
-                    u.inflight_frame_id = None
-                    # Save status after completion
-                    self._save_status_file(username)
-                    step_progress_ms = (perf_counter() - step_progress_start) * 1000
-                    logger.info(f"[⏱️ TIMING] Procedure completion processing - duration={step_progress_ms:.3f}ms")
+                # Check if rules block progression before advancing
+                rules_block_progression = False
+                if u.step_rt and u.step_rt.rule_runtime and u.step_rt.rule_runtime.has_blocking_failures():
+                    rules_block_progression = True
+                    blocking_failures = [r for r in u.step_rt.rule_runtime.results if r.is_blocking()]
+                    failed_names = [r.rule_name for r in blocking_failures]
+                    logger.warning(
+                        f"[STATE_MACHINE] Step progression BLOCKED by rules - "
+                        f"username={username}, step={step.name}, consecutive_yes={u.step_rt.yes_consecutive}, "
+                        f"failed_rules={failed_names}"
+                    )
+                    # Keep consecutive_yes at threshold - don't reset, but don't advance either
+                
+                if not rules_block_progression:
+                    # [TIMING] Progress to next step (or complete)
+                    step_progress_start = perf_counter()
+                    logger.info(f"[STATE_MACHINE] Step progression - rules passed, advancing to next step")
+                    from_id = step.id
+                    next_index = u.current_index + 1
+                    if next_index < len(u.procedure.steps):
+                        u.current_index = next_index
+                        next_step = self._current_step_def(u)
+                        u.step_rt = self._init_step_rt(next_step, self._now_ms())
+                        # Clear inflight_frame_id when progressing to new step (old frame no longer relevant)
+                        u.inflight_frame_id = None
+                        logger.info(f"[STATE_MACHINE] Step progression - username={username}, from_step={from_id}, to_step={next_step.id}, cleared_inflight_frame")
+                        self._on_progress(u.username, u.procedure.id, from_id, next_step.id)
+                        logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={next_step.id}, step_name={next_step.name}")
+                        self._on_step(u.username, u.procedure.id, next_step.id, next_step.name)
+                        # Save status after step progression
+                        self._save_status_file(username)
+                        step_progress_ms = (perf_counter() - step_progress_start) * 1000
+                        logger.info(f"[⏱️ TIMING] Step progression completed - duration={step_progress_ms:.3f}ms")
+                    else:
+                        # Completed
+                        logger.info(f"[STATE_MACHINE] Procedure completed - username={username}, final_step={from_id}")
+                        self._on_progress(u.username, u.procedure.id, from_id, None)
+                        u.state = UserState.COMPLETED
+                        u.step_rt = None
+                        u.inflight_frame_id = None
+                        # Save status after completion
+                        self._save_status_file(username)
+                        step_progress_ms = (perf_counter() - step_progress_start) * 1000
+                        logger.info(f"[⏱️ TIMING] Procedure completion processing - duration={step_progress_ms:.3f}ms")
         else:
             # Any non-YES resets
             previous_count = u.step_rt.yes_consecutive
@@ -537,6 +669,17 @@ class UserStateMachine:
 # ====== Utilities ===================================================================
 
 def step_to_dict(s: StepDef) -> Dict:
+    # Serialize rules to dict format
+    rules_data = []
+    for rule in s.rules:
+        rules_data.append({
+            "rule_type": rule.rule_type.value,
+            "name": rule.name,
+            "enabled": rule.enabled,
+            "failure_behavior": rule.failure_behavior.value,
+            "params": rule.params
+        })
+    
     return {
         "id": s.id,
         "name": s.name,
@@ -546,6 +689,7 @@ def step_to_dict(s: StepDef) -> Dict:
         "timeout_s": s.timeout_s,
         "debounce": {"consecutive_yes": s.debounce_consecutive_yes},
         "debug": s.debug,
+        "rules": rules_data,
     }
 
 
@@ -570,6 +714,36 @@ def procedure_from_json(j: Dict) -> ProcedureDef:
         if has_debug:
             logger.debug(f"[PROCEDURE_PARSE] Step {st['id']} has debug flag: {debug_value}")
         
+        # Parse rules if they exist
+        rules_list = []
+        if "rules" in st:
+            rules_data = st["rules"]
+            logger.debug(f"[PROCEDURE_PARSE] Step {st['id']} has {len(rules_data)} rule(s)")
+            for rule_data in rules_data:
+                # Support both "type" (JSON format) and "rule_type" (internal format) field names
+                rule_type_value = rule_data.get("type") or rule_data.get("rule_type")
+                if not rule_type_value:
+                    logger.error(f"[PROCEDURE_PARSE] Missing rule type field in rule: {rule_data.get('name', 'unnamed')}")
+                    raise KeyError("Rule definition must have 'type' or 'rule_type' field")
+                
+                # Support both "parameters" (JSON format) and "params" (internal format) field names
+                params_value = rule_data.get("parameters") or rule_data.get("params", {})
+                
+                # Create RuleDef with defaults and let __post_init__ handle conversions
+                rule = RuleDef(
+                    rule_type=rule_type_value,
+                    name=rule_data["name"],
+                    enabled=rule_data.get("enabled", True),
+                    failure_behavior=rule_data.get("failure_behavior", "block"),
+                    params=params_value
+                )
+                rules_list.append(rule)
+                logger.debug(
+                    f"[PROCEDURE_PARSE] Parsed rule: name={rule.name}, "
+                    f"type={rule.rule_type.value}, enabled={rule.enabled}, "
+                    f"behavior={rule.failure_behavior.value}"
+                )
+        
         steps.append(StepDef(
             id=st["id"],
             name=st["name"],
@@ -579,6 +753,7 @@ def procedure_from_json(j: Dict) -> ProcedureDef:
             timeout_s=st["timeout_s"],
             debounce_consecutive_yes=st["debounce"]["consecutive_yes"],
             debug=debug_value,
+            rules=rules_list,
         ))
     logger.info(f"[PROCEDURE_PARSE] Successfully parsed {len(steps)} steps from JSON")
     return ProcedureDef(

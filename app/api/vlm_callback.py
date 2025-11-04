@@ -114,9 +114,9 @@ async def vlm_callback(request: Request) -> Dict:
                 detail=f"Invalid decision type: expected string, got {type(decision_str)}"
             )
         
-        # Pass to state machine
+        # Pass to state machine with full VLM response data
         logger.info(f"[VLM_CALLBACK] Processing decision - username={username}, frame_id={frame_id}, decision={decision.value}")
-        machine.vlm_decision(username, frame_id, decision)
+        machine.vlm_decision(username, frame_id, decision, vlm_response=data)
         logger.info(f"[VLM_CALLBACK] Success - username={username}, frame_id={frame_id}, decision={decision.value}")
         logger.info(f"[VLM_RESPONSE] user={username} frame_id={frame_id} decision={decision.value}")
         
