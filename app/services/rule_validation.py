@@ -63,8 +63,8 @@ class RuleValidationService:
         )
     
     def validate_rules(
-        self, 
-        rules: List[RuleDef], 
+        self,
+        rules: List[RuleDef],
         context: Dict[str, Any]
     ) -> List[RuleValidationResult]:
         """
@@ -77,6 +77,7 @@ class RuleValidationService:
         Returns:
             List of RuleValidationResult objects, one for each rule
         """
+        print(f"\n[RULE_VALIDATION_SERVICE] validate_rules() called with {len(rules)} rule(s)")
         logger.info(
             f"[RULE_VALIDATION] Starting validation of {len(rules)} rule(s)"
         )
@@ -129,6 +130,7 @@ class RuleValidationService:
             
             # Validate the rule using the handler
             try:
+                print(f"[RULE_VALIDATION_SERVICE] Calling handler {handler.__class__.__name__} for rule '{rule.name}'")
                 logger.info(
                     f"[RULE_VALIDATION] Validating rule '{rule.name}' "
                     f"with {handler.__class__.__name__}"
@@ -136,6 +138,7 @@ class RuleValidationService:
                 result = handler.validate(rule, context)
                 results.append(result)
                 
+                print(f"[RULE_VALIDATION_SERVICE] Rule '{rule.name}' result: {result.status.value} - {result.message}")
                 logger.info(
                     f"[RULE_VALIDATION] Rule '{rule.name}' validation completed: "
                     f"status={result.status.value}, message={result.message}"

@@ -31,16 +31,16 @@
       "positives": [
         "Do you see sliced mushrooms spread evenly across the pizza base, covering a large part of it. Only answer with [yes] or [no]"
       ],
-      "bounding_questions": ["mushroom"],
+      "bounding_questions": ["mushrooms"],
       "rules": [
         {
           "type": "cluster_negative",
           "name": "Prevent Mushroom Clustering",
           "description": "Ensures mushrooms are not clustered together in groups",
-          "target": "mushroom",
           "enabled": true,
           "failure_behavior": "block",
           "parameters": {
+            "target": "mushrooms",
             "max_cluster_size": 3,
             "min_distance": 50
           }

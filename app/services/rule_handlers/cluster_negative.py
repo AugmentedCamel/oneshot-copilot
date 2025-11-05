@@ -49,6 +49,12 @@ class ClusterNegativeHandler(RuleHandler):
         
         # Extract target item from rule parameters
         target_item = rule.params.get("target")
+        
+        # Print: Rule validation start
+        print("\n" + "=" * 50)
+        print(f"CLUSTER_NEGATIVE RULE: {rule.name}")
+        if target_item:
+            print(f"Target: {target_item}")
         if not target_item:
             logger.error(f"[RULE_VALIDATION] Missing 'target' in rule params: {rule.name}")
             return self._create_result(
@@ -69,70 +75,115 @@ class ClusterNegativeHandler(RuleHandler):
                 details={"reason": "no_vlm_response"}
             )
         
-        # Extract bounding boxes from VLM response
-        bounding_boxes = vlm_response.get("bounding_boxes") or vlm_response.get("boxes")
-        if not bounding_boxes:
-            logger.info(f"[RULE_VALIDATION] No bounding boxes in VLM response for rule: {rule.name}")
+        # Navigate to bounding results: response -> raw_json -> bounding_results
+        bounding_results = vlm_response.get("bounding_results", [])
+        
+        print(f"VLM Response structure: response={vlm_response is not None}, bounding_results_count={len(bounding_results)}")
+        
+        if not bounding_results:
+            logger.info(f"[RULE_VALIDATION] No bounding results in VLM response for rule: {rule.name}")
             return self._create_result(
                 rule=rule,
                 status=RuleStatus.SKIPPED,
-                message="No bounding boxes available for analysis",
-                details={"reason": "no_bounding_boxes"}
+                message="No bounding results available for analysis",
+                details={"reason": "no_bounding_results"}
             )
         
-        # Perform clustering analysis
-        try:
-            clustering_result = self._context_analysis.analyze_clustering(
-                target_item=target_item,
-                bounding_boxes=bounding_boxes
-            )
-            
-            is_clustered = clustering_result.get("is_clustered", False)
-            count = clustering_result.get("count", 0)
-            threshold = clustering_result.get("threshold", 9)
-            
-            # cluster_negative rule: we DON'T want clustering
-            # If is_clustered is True, the rule FAILS
-            # If is_clustered is False, the rule PASSES
-            if is_clustered:
-                result = self._create_result(
-                    rule=rule,
-                    status=RuleStatus.FAILED,
-                    message=f"Clustering detected for '{target_item}' (count={count} <= {threshold})",
-                    details={
-                        "clustering_result": clustering_result,
-                        "reason": "clustering_detected"
-                    }
-                )
-                logger.warning(
-                    f"[RULE_VALIDATION] Rule '{rule.name}' FAILED: "
-                    f"clustering detected for '{target_item}' (count={count})"
-                )
-            else:
-                result = self._create_result(
-                    rule=rule,
-                    status=RuleStatus.PASSED,
-                    message=f"No clustering detected for '{target_item}' (count={count} > {threshold})",
-                    details={
-                        "clustering_result": clustering_result,
-                        "reason": "no_clustering"
-                    }
-                )
-                logger.info(
-                    f"[RULE_VALIDATION] Rule '{rule.name}' PASSED: "
-                    f"no clustering for '{target_item}' (count={count})"
-                )
-            
-            return result
-            
-        except Exception as e:
-            logger.error(
-                f"[RULE_VALIDATION] Error during clustering analysis for rule '{rule.name}': {str(e)}",
-                exc_info=True
-            )
+        # Find bounding result matching target item (handle singular/plural)
+        target_variations = [target_item, target_item + "s", target_item.rstrip("s")]
+        matching_result = None
+        for result in bounding_results:
+            query = result.get("query", "").lower()
+            for variation in target_variations:
+                if variation.lower() in query:
+                    matching_result = result
+                    break
+            if matching_result:
+                break
+        
+        if not matching_result:
+            logger.info(f"[RULE_VALIDATION] No bounding results for target '{target_item}' in rule: {rule.name}")
+            print(f"Target item '{target_item}' not found in bounding results")
             return self._create_result(
                 rule=rule,
-                status=RuleStatus.ERROR,
-                message=f"Clustering analysis error: {str(e)}",
-                details={"reason": "analysis_exception", "error": str(e)}
+                status=RuleStatus.SKIPPED,
+                message=f"No bounding results found for target '{target_item}'",
+                details={"reason": "target_not_found", "target": target_item}
             )
+        
+        # Get count directly from bounding result - simpler approach
+        count = matching_result.get("count", 0)
+        bounding_boxes = matching_result.get("objects", [])
+        
+        # Debug prints
+        print(f"[CLUSTER_NEGATIVE] Target: '{target_item}'")
+        print(f"[CLUSTER_NEGATIVE] Count from VLM: {count}")
+        print(f"[CLUSTER_NEGATIVE] Bounding boxes: {len(bounding_boxes)}")
+        
+        if count == 0:
+            logger.info(f"[RULE_VALIDATION] No objects detected for target '{target_item}' in rule: {rule.name}")
+            return self._create_result(
+                rule=rule,
+                status=RuleStatus.SKIPPED,
+                message=f"No objects detected for target '{target_item}' (count=0)",
+                details={"reason": "no_objects", "target": target_item, "count": 0}
+            )
+        
+        # Simple clustering logic using count field
+        # count > 9 = no cluster (items are distributed) -> PASS
+        # count <= 9 = cluster detected (items are grouped) -> FAIL
+        threshold = 9
+        is_clustered = count <= threshold
+        
+        # Debug: Show logic
+        print(f"[CLUSTER_NEGATIVE] Threshold: {threshold}")
+        print(f"[CLUSTER_NEGATIVE] Logic: count ({count}) {'<=' if is_clustered else '>'} threshold ({threshold})")
+        print(f"[CLUSTER_NEGATIVE] Result: {'CLUSTER DETECTED' if is_clustered else 'NO CLUSTER'}")
+        
+        # cluster_negative rule: we DON'T want clustering
+        # If is_clustered is True, the rule FAILS
+        # If is_clustered is False, the rule PASSES
+        if is_clustered:
+            result = self._create_result(
+                rule=rule,
+                status=RuleStatus.FAILED,
+                message=f"Clustering detected for '{target_item}' (count={count} <= {threshold})",
+                details={
+                    "count": count,
+                    "threshold": threshold,
+                    "is_clustered": True,
+                    "reason": "clustering_detected"
+                }
+            )
+            
+            # Print: Final decision (FAILED)
+            print(f"[CLUSTER_NEGATIVE] Decision: FAILED - Clustering detected")
+            print("=" * 50 + "\n")
+            
+            logger.warning(
+                f"[RULE_VALIDATION] Rule '{rule.name}' FAILED: "
+                f"clustering detected for '{target_item}' (count={count})"
+            )
+        else:
+            result = self._create_result(
+                rule=rule,
+                status=RuleStatus.PASSED,
+                message=f"No clustering detected for '{target_item}' (count={count} > {threshold})",
+                details={
+                    "count": count,
+                    "threshold": threshold,
+                    "is_clustered": False,
+                    "reason": "no_clustering"
+                }
+            )
+            
+            # Print: Final decision (PASSED)
+            print(f"[CLUSTER_NEGATIVE] Decision: PASSED - No clustering detected")
+            print("=" * 50 + "\n")
+            
+            logger.info(
+                f"[RULE_VALIDATION] Rule '{rule.name}' PASSED: "
+                f"no clustering for '{target_item}' (count={count})"
+            )
+        
+        return result

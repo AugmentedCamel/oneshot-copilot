@@ -66,12 +66,42 @@ async def vlm_callback(request: Request) -> Dict:
             logger.error(f"[VLM_CALLBACK] Failed to parse JSON body - error={str(e)}")
             raise HTTPException(status_code=400, detail=f"Invalid JSON body: {str(e)}")
         
-        # Extract data from new payload structure
+        # Extract data - support multiple payload structures
         payload = body  # already parsed dict
+        
+        # DEBUG: Print full payload structure
+        print(f"\n{'='*80}")
+        print(f"[VLM_CALLBACK] FULL PAYLOAD STRUCTURE:")
+        print(f"  Payload keys: {list(payload.keys())}")
+        if "response" in payload:
+            response = payload.get("response", {})
+            print(f"  response keys: {list(response.keys())}")
+            if "raw_json" in response:
+                raw_json = response.get("raw_json", {})
+                print(f"  response.raw_json keys: {list(raw_json.keys())}")
+                if "bounding_results" in raw_json:
+                    bounding_results = raw_json.get("bounding_results", [])
+                    print(f"  response.raw_json.bounding_results count: {len(bounding_results)}")
+                    if bounding_results:
+                        print(f"  First bounding_result keys: {list(bounding_results[0].keys())}")
+        if "data" in payload:
+            data = payload.get("data", {})
+            print(f"  data keys: {list(data.keys())}")
+        print(f"{'='*80}\n")
+        
+        # Try new structure first: response.raw_json.result
         data = payload.get("data") or {}
         result = data.get("result")              # "yes"/"no" for the positive question
         neg_result = data.get("negative_result") # "yes"/"no" aggregated negatives
         final = data.get("final")                # "YES"/"NO" combined decision (new field)
+        
+        # Also check response structure
+        if not result and not neg_result and not final:
+            response = payload.get("response", {})
+            raw_json = response.get("raw_json", {})
+            result = raw_json.get("result")
+            neg_result = raw_json.get("negative_result")
+            final = raw_json.get("final")
         
         logger.info(f"[VLM_CALLBACK] *** EXTRACTED FIELDS *** - result={result}, negative_result={neg_result}, final={final}")
         
@@ -116,7 +146,9 @@ async def vlm_callback(request: Request) -> Dict:
         
         # Pass to state machine with full VLM response data
         logger.info(f"[VLM_CALLBACK] Processing decision - username={username}, frame_id={frame_id}, decision={decision.value}")
-        machine.vlm_decision(username, frame_id, decision, vlm_response=data)
+        # Pass the entire payload which contains request/response structure
+        print(f"\n[VLM_CALLBACK DEBUG] Passing full payload to state machine - keys: {list(payload.keys())}")
+        machine.vlm_decision(username, frame_id, decision, vlm_response=payload)
         logger.info(f"[VLM_CALLBACK] Success - username={username}, frame_id={frame_id}, decision={decision.value}")
         logger.info(f"[VLM_RESPONSE] user={username} frame_id={frame_id} decision={decision.value}")
         

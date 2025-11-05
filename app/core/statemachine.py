@@ -170,6 +170,14 @@ class UserStateMachine:
             self._context_analysis = None
             logger.warning("Context analysis service not available")
         
+        # Initialize rule validation service if available
+        if _rule_validation_available:
+            self._rule_validation = RuleValidationService()
+            logger.info("Rule validation service initialized")
+        else:
+            self._rule_validation = None
+            logger.warning("Rule validation service not available")
+        
         logger.debug("StateMachine initialized with single-frame buffering")
 
     # ---------- helpers
@@ -381,10 +389,38 @@ class UserStateMachine:
         
         logger.info(f"[STATE_MACHINE] Processing VLM decision - username={username}, frame_id={frame_id}, decision={decision.value}")
         u = self._get_or_create_user(username)
+        
+        # DEBUG: Print VLM response structure received by state machine
+        if vlm_response:
+            print(f"\n{'='*80}")
+            print(f"[STATE_MACHINE] VLM RESPONSE RECEIVED:")
+            print(f"  Response keys: {list(vlm_response.keys())}")
+            if "response" in vlm_response:
+                resp = vlm_response.get("response", {})
+                print(f"  response keys: {list(resp.keys())}")
+                if "raw_json" in resp:
+                    raw = resp.get("raw_json", {})
+                    print(f"  response.raw_json keys: {list(raw.keys())}")
+                    if "bounding_results" in raw:
+                        br = raw.get("bounding_results", [])
+                        print(f"  response.raw_json.bounding_results: {len(br)} item(s)")
+                        if br:
+                            print(f"  First bounding_result sample: {br[0]}")
+            print(f"{'='*80}\n")
+        else:
+            print(f"\n[STATE_MACHINE] WARNING: No vlm_response provided to state machine\n")
+        
+        # Print step info with rule status
+        step = self._current_step_def(u)
+        if step:
+            has_rules = step.has_rules()
+            rule_count = len(step.rules) if has_rules else 0
+            print(f"\n[VLM DECISION] Step: '{step.name}' | Decision: {decision.value} | Has Rules: {has_rules} ({rule_count} rule(s))")
 
         # Perform context analysis if VLM response data is available and service is initialized
         if vlm_response and self._context_analysis:
             try:
+                print(f"[STATE_MACHINE] → Passing VLM response to context analysis service")
                 step_def = self._current_step_def(u)
                 step_name = step_def.name if step_def else None
                 self._context_analysis.analyze(
@@ -393,14 +429,24 @@ class UserStateMachine:
                     vlm_response=vlm_response,
                     step_name=step_name
                 )
+                print(f"[STATE_MACHINE] ✓ Context analysis completed")
             except Exception as e:
                 logger.error(f"[VLM_DECISION] Context analysis failed - error={str(e)}", exc_info=True)
+                print(f"[STATE_MACHINE] ✗ Context analysis failed: {str(e)}")
                 # Continue with decision processing even if analysis fails
         
         # Perform rule validation if VLM response data is available, service is initialized, and step has rules
         step = self._current_step_def(u)
+        print(f"\n[DEBUG] Checking rule validation conditions:")
+        print(f"  - step exists: {step is not None}")
+        print(f"  - step.has_rules(): {step.has_rules() if step else 'N/A'}")
+        print(f"  - vlm_response provided: {vlm_response is not None}")
+        print(f"  - self._rule_validation initialized: {self._rule_validation is not None}")
         if step and step.has_rules() and vlm_response and self._rule_validation:
             try:
+                print(f"\n{'='*80}")
+                print(f"[RULE VALIDATION] Step '{step.name}' has {len(step.rules)} rule(s) - starting validation")
+                print(f"{'='*80}\n")
                 logger.info(f"[VLM_DECISION] Validating {len(step.rules)} rule(s) for step {step.name}")
                 
                 # Initialize rule_runtime if needed
@@ -416,6 +462,11 @@ class UserStateMachine:
                     "vlm_response": vlm_response
                 }
                 
+                print(f"[STATE_MACHINE] → Passing context to rule validation service:")
+                print(f"  - vlm_response present: {vlm_response is not None}")
+                print(f"  - vlm_response type: {type(vlm_response)}")
+                print(f"  - context keys: {list(context.keys())}")
+                
                 # Validate rules
                 validation_start_ms = self._now_ms()
                 results = self._rule_validation.validate_rules(step.rules, context)
@@ -430,11 +481,21 @@ class UserStateMachine:
                 blocking_failures = [r for r in results if r.is_blocking()]
                 if blocking_failures:
                     failed_names = [r.rule_name for r in blocking_failures]
+                    print(f"\n{'!'*80}")
+                    print(f"[RULE VALIDATION] ❌ {len(blocking_failures)} BLOCKING RULE(S) FAILED:")
+                    for r in blocking_failures:
+                        print(f"  - Rule: {r.rule_name}")
+                        print(f"    Status: {r.status.value}")
+                        print(f"    Message: {r.message}")
+                    print(f"{'!'*80}\n")
                     logger.warning(
                         f"[VLM_DECISION] {len(blocking_failures)} blocking rule(s) failed - "
                         f"username={username}, step={step.name}, failed={failed_names}"
                     )
                 else:
+                    print(f"\n{'='*80}")
+                    print(f"[RULE VALIDATION] ✓ ALL RULES PASSED - step can progress")
+                    print(f"{'='*80}\n")
                     logger.info(f"[VLM_DECISION] All rules passed - username={username}, step={step.name}")
                     
             except Exception as e:
@@ -493,6 +554,12 @@ class UserStateMachine:
                     rules_block_progression = True
                     blocking_failures = [r for r in u.step_rt.rule_runtime.results if r.is_blocking()]
                     failed_names = [r.rule_name for r in blocking_failures]
+                    print(f"\n{'🛑'*40}")
+                    print(f"[PROGRESSION BLOCKED] Cannot advance to next step!")
+                    print(f"  Step: {step.name}")
+                    print(f"  Consecutive YES: {u.step_rt.yes_consecutive}/{step.debounce_consecutive_yes}")
+                    print(f"  Failed Rules: {', '.join(failed_names)}")
+                    print(f"{'🛑'*40}\n")
                     logger.warning(
                         f"[STATE_MACHINE] Step progression BLOCKED by rules - "
                         f"username={username}, step={step.name}, consecutive_yes={u.step_rt.yes_consecutive}, "
@@ -503,6 +570,12 @@ class UserStateMachine:
                 if not rules_block_progression:
                     # [TIMING] Progress to next step (or complete)
                     step_progress_start = perf_counter()
+                    print(f"\n{'✓'*40}")
+                    print(f"[PROGRESSION ALLOWED] Advancing to next step")
+                    print(f"  Current Step: {step.name}")
+                    print(f"  Consecutive YES: {u.step_rt.yes_consecutive}/{step.debounce_consecutive_yes}")
+                    print(f"  Rules: All passed or no blocking failures")
+                    print(f"{'✓'*40}\n")
                     logger.info(f"[STATE_MACHINE] Step progression - rules passed, advancing to next step")
                     from_id = step.id
                     next_index = u.current_index + 1

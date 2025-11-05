@@ -82,6 +82,6 @@ class RuleValidationResult:
     def is_blocking(self) -> bool:
         """Check if this result should block progression."""
         return (
-            self.status == RuleStatus.FAILED 
+            self.status in [RuleStatus.FAILED, RuleStatus.SKIPPED]
             and self.failure_behavior == FailureBehavior.BLOCK
         )

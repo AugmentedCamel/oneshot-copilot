@@ -207,7 +207,7 @@ async def post_to_vlm_callback(
         # [TIMING] Pass decision to state machine
         state_machine_start = perf_counter()
         logger.info(f"[CALLBACK] Processing decision - username={username}, frame_id={frame_id}, decision={decision.value}")
-        machine.vlm_decision(username, frame_id, decision)
+        machine.vlm_decision(username, frame_id, decision, vlm_response=response_json)
         state_machine_ms = (perf_counter() - state_machine_start) * 1000
         logger.info(f"[⏱️ TIMING] State machine decision processing - duration={state_machine_ms:.3f}ms")
         

@@ -120,7 +120,7 @@ class ContextAnalysisService:
         else:
             logger.warning(f"[CONTEXT_ANALYSIS] Unexpected bounding_boxes format: {type(bounding_boxes)}")
 
-    def analyze_clustering(self, target_item: str, bounding_boxes: Dict) -> Dict:
+    def analyze_clustering(self, target_item: str, bounding_boxes: List[Dict]) -> Dict:
         """
         Analyze if detected items in bounding boxes are clustered.
         
@@ -130,8 +130,8 @@ class ContextAnalysisService:
 
         Args:
             target_item: The item name to analyze (e.g., "mushroom")
-            bounding_boxes: Dictionary of bounding boxes from VLM response
-                           Format: {"item_name": [{"x": ..., "y": ..., ...}, ...]}
+            bounding_boxes: List of bounding box dictionaries (objects array from VLM)
+                           Format: [{"x_min": ..., "y_min": ..., "x_max": ..., "y_max": ...}, ...]
 
         Returns:
             Dictionary with clustering analysis results:
@@ -144,11 +144,8 @@ class ContextAnalysisService:
         """
         logger.info(f"[CONTEXT_ANALYSIS] Analyzing clustering for target_item='{target_item}'")
         
-        # Get bounding boxes for the target item
-        item_boxes = bounding_boxes.get(target_item, [])
-        
-        # Count the number of bounding boxes
-        count = len(item_boxes) if isinstance(item_boxes, list) else 0
+        # Count bounding boxes directly (already filtered for target item)
+        count = len(bounding_boxes)
         
         # Simple clustering logic:
         # > 9 detections means well distributed (NOT clustered)
