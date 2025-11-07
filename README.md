@@ -78,6 +78,106 @@ cp .env.example .env
 ```
 
 
+## Docker Setup
+
+This section provides instructions for building and running Oneshot Copilot using Docker. The Docker container includes both the FastAPI backend and the MentraApp frontend.
+
+### Prerequisites
+
+- **Docker** installed on your system
+- **Configured environment files**:
+  - `.env` in the root directory (copy from `.env.example`)
+  - `MentraApp/.env` in the MentraApp directory (copy from `MentraApp/.env.example`)
+- **Optional GPU support**: If using GPU-accelerated features (e.g., for VLM processing), ensure Docker has GPU access configured
+
+### Building the Docker Image
+
+1. **Clone the repository and navigate to the project directory**:
+   ```bash
+   git clone <repository-url>
+   cd oneshot-copilot
+   ```
+
+2. **Build the Docker image**:
+   ```bash
+   docker build -t oneshot-copilot .
+   ```
+
+   This will create a Docker image that includes:
+   - Python 3.11 environment with all dependencies
+   - Bun runtime for the MentraApp
+   - Both Oneshot Copilot and MentraApp services
+
+### Running the Container
+
+1. **Run the container with port mappings**:
+   ```bash
+   docker run -p 8000:8000 -p 3000:3000 oneshot-copilot
+   ```
+
+   **Port mappings**:
+   - `8000`: Oneshot Copilot FastAPI server
+   - `3000`: MentraApp frontend server
+
+2. **Optional: Mount environment files** (if you want to modify them without rebuilding):
+   ```bash
+   docker run -p 8000:8000 -p 3000:3000 \
+     -v $(pwd)/.env:/app/.env \
+     -v $(pwd)/MentraApp/.env:/app/MentraApp/.env \
+     oneshot-copilot
+   ```
+
+3. **Optional: Run in detached mode**:
+   ```bash
+   docker run -d -p 8000:8000 -p 3000:3000 --name oneshot-container oneshot-copilot
+   ```
+
+### Accessing the Services
+
+Once the container is running:
+
+- **Oneshot Copilot API**: Available at `http://localhost:8000`
+  - API documentation: `http://localhost:8000/docs`
+  - Health check: `http://localhost:8000/health`
+
+- **MentraApp Frontend**: Available at `http://localhost:3000`
+  - Main application interface
+  - User authentication and procedure management
+
+### Environment Variables
+
+The container expects the following environment variables to be configured in the respective `.env` files:
+
+**Root `.env`**:
+- `SELF_URL`: Your server's public URL
+- `MENTRA_URL`: Mentra webhook URL
+- `VLM_URL`: VLM service URL
+- `USE_CLOUD_VLM`: Whether to use cloud VLM (true/false)
+- `MOONDREAM_API_KEY`: API key for Moondream AI (if using cloud VLM)
+- Other configuration options as documented in the Configuration section
+
+**MentraApp/.env**:
+- `MENTRAOS_API_KEY`: Mentra OS API key
+- `PORT`: Port for Mentra app (default: 3000)
+- `PACKAGE_NAME`: Application package identifier
+- `RTMP_URL`: RTMP stream URL (optional)
+
+### Troubleshooting
+
+- **Container fails to start**: Ensure `.env` and `MentraApp/.env` files exist and are properly configured
+- **Port conflicts**: If ports 8000 or 3000 are already in use, modify the port mappings (e.g., `-p 8001:8000`)
+- **Permission issues**: Ensure Docker has access to the project directory
+- **VLM connection issues**: Verify `VLM_URL` is accessible from within the container
+- **Logs**: View container logs with `docker logs <container-name>` for debugging
+- **GPU support**: If using GPU features, ensure NVIDIA Docker runtime is configured (`--gpus all` flag may be needed)
+
+### Notes
+
+- The container runs both services simultaneously using a startup script
+- For development, consider mounting source code volumes for live reloading
+- Ensure your `.env` files contain all required configuration before building
+- The container uses Python virtual environment and Bun for optimal performance
+
 ## Configuration
 
 Edit `.env` file with your settings:

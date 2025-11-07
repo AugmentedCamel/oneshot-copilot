@@ -410,6 +410,8 @@ class StreamQualityFilter:
         """
         Capture frames from input RTSP stream and filter by quality.
         """
+        logger.info(f"Available backends: {cv2.videoio_registry.getBackends()}")
+        logger.info(f"FFMPEG backend available: {cv2.videoio_registry.hasBackend(cv2.CAP_FFMPEG)}")
         logger.info(f"Connecting to input RTSP stream: {self.input_rtsp_url}")
 
         # Use TCP for more reliable connection (UDP can cause frame drops)
