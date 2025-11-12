@@ -16,9 +16,9 @@
     },
     {
       "id": 2,
-      "name": "Add ham",
+      "name": "Add salami",
       "positives": [
-        "Slices of ham are evenly distributed on the pizza. Only answer with [yes] or [no]"
+        "Slices of salami are evenly distributed on the pizza. Only answer with [yes] or [no]"
       ],
       "timeout_s": 200,
       "debounce": {
