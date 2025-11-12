@@ -149,6 +149,7 @@ class ClusterNegativeHandler(RuleHandler):
                 status=RuleStatus.FAILED,
                 message=f"Clustering detected for '{target_item}' (count={count} <= {threshold})",
                 details={
+                    "target": target_item,
                     "count": count,
                     "threshold": threshold,
                     "is_clustered": True,
@@ -170,6 +171,7 @@ class ClusterNegativeHandler(RuleHandler):
                 status=RuleStatus.PASSED,
                 message=f"No clustering detected for '{target_item}' (count={count} > {threshold})",
                 details={
+                    "target": target_item,
                     "count": count,
                     "threshold": threshold,
                     "is_clustered": False,

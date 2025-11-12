@@ -136,6 +136,7 @@ class UserSession:
     frame_ingest_time: Optional[float] = None  # When frame was ingested (perf_counter)
     vlm_dispatch_time: Optional[float] = None  # When frame was dispatched to VLM (perf_counter)
     vlm_response_time: Optional[float] = None  # When VLM response was received (perf_counter)
+    last_feedback_sent_ms: Optional[int] = None  # Track last feedback time
 
 
 # ====== State Machine ================================================================
@@ -492,6 +493,51 @@ class UserStateMachine:
                         f"[VLM_DECISION] {len(blocking_failures)} blocking rule(s) failed - "
                         f"username={username}, step={step.name}, failed={failed_names}"
                     )
+                    
+                    # NEW: Send feedback to client when step looks complete but rules block it
+                    # Only send if decision is YES (user thinks step is done) and enough time has passed
+                    current_time_ms = self._now_ms()
+                    time_since_last_feedback = (
+                        (current_time_ms - u.last_feedback_sent_ms)
+                        if u.last_feedback_sent_ms is not None
+                        else float('inf')
+                    )
+                    
+                    should_send_feedback = (
+                        decision == Decision.YES and
+                        time_since_last_feedback >= 4000  # 4 seconds throttle
+                    )
+                    
+                    if should_send_feedback and self._on_step:
+                        u.last_feedback_sent_ms = current_time_ms
+                        
+                        # Build feedback message based on rule type
+                        failure = blocking_failures[0]  # Use first failure
+                        
+                        # Customize message based on rule name
+                        if 'cluster' in failure.rule_name.lower():
+                            # Extract target from rule parameters if available
+                            target = "the items"
+                            # Get target from details if available (set by rule handler)
+                            if failure.details and 'target' in failure.details:
+                                target = failure.details['target']
+                            feedback_message = f"Please do not cluster the {target}"
+                        else:
+                            # Generic fallback
+                            feedback_message = f"Issue detected: {failure.message}"
+                        
+                        try:
+                            # Send feedback using existing on_step callback (sends text to client)
+                            self._on_step(username, u.procedure.id, step.id, feedback_message)
+                            logger.info(
+                                f"[FEEDBACK] Sent to client - username={username}, "
+                                f"step={step.name}, message='{feedback_message}'"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"[FEEDBACK] Failed to send - username={username}, "
+                                f"error={str(e)}"
+                            )
                 else:
                     print(f"\n{'='*80}")
                     print(f"[RULE VALIDATION] ✓ ALL RULES PASSED - step can progress")
@@ -581,6 +627,7 @@ class UserStateMachine:
                     next_index = u.current_index + 1
                     if next_index < len(u.procedure.steps):
                         u.current_index = next_index
+                        u.last_feedback_sent_ms = None  # Reset feedback tracking for new step
                         next_step = self._current_step_def(u)
                         u.step_rt = self._init_step_rt(next_step, self._now_ms())
                         # Clear inflight_frame_id when progressing to new step (old frame no longer relevant)
@@ -598,6 +645,7 @@ class UserStateMachine:
                         logger.info(f"[STATE_MACHINE] Procedure completed - username={username}, final_step={from_id}")
                         self._on_progress(u.username, u.procedure.id, from_id, None)
                         u.state = UserState.COMPLETED
+                        u.last_feedback_sent_ms = None  # Reset feedback tracking on completion
                         u.step_rt = None
                         u.inflight_frame_id = None
                         # Save status after completion
