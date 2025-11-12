@@ -2,6 +2,10 @@ import { AuthenticatedRequest, AppServer } from '@mentra/sdk';
 import express, { Response, NextFunction } from 'express';
 import path from 'path';
 
+// Track recent TTS requests to prevent duplicates (username -> last text + timestamp)
+const recentTTSRequests = new Map<string, { text: string; timestamp: number }>();
+const TTS_DUPLICATE_WINDOW_MS = 2000; // 2 second window for duplicate detection
+
 /**
  * Sets up all Express routes and middleware for the server
  * @param server The server instance
@@ -582,6 +586,20 @@ export function setupExpressRoutes(server: AppServer): void {
         });
       }
 
+      // Check for duplicate TTS request
+      const now = Date.now();
+      const recent = recentTTSRequests.get(username);
+      if (recent && recent.text === text && (now - recent.timestamp) < TTS_DUPLICATE_WINDOW_MS) {
+        console.log(`[${timestamp}] [ON_STEP] Duplicate TTS request detected within ${TTS_DUPLICATE_WINDOW_MS}ms, skipping - username="${username}", text="${text}"`);
+        return res.json({
+          success: true,
+          message: 'Duplicate request skipped',
+          username: username,
+          text: text,
+          ttsEnabled: true
+        });
+      }
+
       // Get userId for the username
       const userId = (server as any).getUserIdForUsername(username);
       console.log(`[${timestamp}] [ON_STEP] Username "${username}" maps to userId: ${userId || 'NOT_FOUND'}`);
@@ -600,6 +618,19 @@ export function setupExpressRoutes(server: AppServer): void {
       console.log(`[${timestamp}] [ON_STEP] TTS enabled for "${username}": ${settings?.ttsEnabled ?? false}`);
 
       if (settings?.ttsEnabled) {
+        // Store this request to detect duplicates
+        recentTTSRequests.set(username, { text, timestamp: now });
+        
+        // Clean up old entries (keep map from growing indefinitely)
+        if (recentTTSRequests.size > 100) {
+          const oldestAllowed = now - TTS_DUPLICATE_WINDOW_MS;
+          for (const [key, value] of recentTTSRequests.entries()) {
+            if (value.timestamp < oldestAllowed) {
+              recentTTSRequests.delete(key);
+            }
+          }
+        }
+        
         // Get AudioFeedback instance for this user
         const audioFeedbackMap = (server as any).audioFeedbackMap;
         const audioFeedback = audioFeedbackMap.get(userId);

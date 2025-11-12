@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import httpx
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 from time import perf_counter
 from app.config import settings
 from app.core.vlm_client import post_to_vlm_multipart
@@ -11,6 +11,9 @@ from app.models.state import Decision
 from app.core.metrics import get_metrics_collector, TimingMetrics
 
 logger = logging.getLogger(__name__)
+
+# Track in-flight on_step callbacks to prevent duplicates
+_on_step_in_flight: Set[str] = set()
 
 
 async def on_step_callback(username: str, procedure_id: str, step_id: int, step_name: str) -> None:
@@ -23,8 +26,19 @@ async def on_step_callback(username: str, procedure_id: str, step_id: int, step_
         step_id: Step ID
         step_name: Step name/title
     """
-    logger.info(f"[CALLBACK] *** ON_STEP TRIGGERED *** username={username}, procedure={procedure_id}, step_id={step_id}, step_name='{step_name}'")
+    # Create unique key for this callback to prevent duplicates
+    callback_key = f"{username}:{step_id}:{step_name}"
+    
+    # Check if this callback is already in flight
+    if callback_key in _on_step_in_flight:
+        logger.info(f"[CALLBACK] Duplicate on_step detected, skipping - username={username}, step_id={step_id}, step_name='{step_name}'")
+        return
+    
+    # Mark as in-flight
+    _on_step_in_flight.add(callback_key)
+    
     try:
+        logger.info(f"[CALLBACK] *** ON_STEP TRIGGERED *** username={username}, procedure={procedure_id}, step_id={step_id}, step_name='{step_name}'")
         url = f"{settings.MENTRA_URL}/on_step"
         payload = {
             "username": username,
@@ -41,6 +55,9 @@ async def on_step_callback(username: str, procedure_id: str, step_id: int, step_
                 logger.warning(f"[CALLBACK] Non-200 response from on_step - status={response.status_code}, body={response.text}")
     except Exception as e:
         logger.error(f"[CALLBACK] *** ON_STEP FAILED *** username={username}, error={str(e)}", exc_info=True)
+    finally:
+        # Always remove from in-flight set when done
+        _on_step_in_flight.discard(callback_key)
 
 
 async def on_progress_callback(

@@ -53,6 +53,7 @@ export class AudioFeedback {
   private playing = false;
   private processing = false;
   private disposed = false;
+  private currentAudioId: string | null = null; // Track current audio to prevent duplicates
 
   constructor(private readonly session: AppSession, private readonly logger?: LoggerLike) {}
 
@@ -66,17 +67,30 @@ export class AudioFeedback {
     if (!text?.trim()) return;
 
     const item: TTSItem = { kind: 'tts', text: text.trim(), options, priority };
+    
+    // Generate audio ID for deduplication (hash of text + priority)
+    const audioId = `tts_${priority}_${text.trim()}`;
 
     if (priority === FeedbackPriority.High) {
+      // Check if this exact same high-priority audio is already playing
+      if (this.currentAudioId === audioId) {
+        this.logger?.info?.(`Duplicate HIGH priority TTS detected, skipping: "${text}"`);
+        return;
+      }
+      
       if (this.playing || this.processing) {
+        this.logger?.info?.(`Interrupting current audio for HIGH priority TTS: "${text}"`);
         await this.tryStopTransport();
+        // Wait a bit for audio to fully stop
+        await new Promise(resolve => setTimeout(resolve, 100));
         this.queue = [item];
         this.processing = false;
         this.playing = false;
+        this.currentAudioId = null; // Clear current audio ID
         this.ensureProcessing();
         return;
       }
-      await this.playNow(item);
+      await this.playNow(item, audioId);
       return;
     }
 
@@ -134,6 +148,7 @@ export class AudioFeedback {
       await this.tryStopTransport();
       this.processing = false;
       this.playing = false;
+      this.currentAudioId = null; // Clear current audio ID
     } catch {
       // ignore
     }
@@ -174,12 +189,22 @@ export class AudioFeedback {
   private async processQueue(): Promise<void> {
     while (!this.disposed && this.queue.length > 0) {
       const next = this.queue.shift()!;
-      await this.playNow(next);
+      // Generate audio ID for deduplication
+      const audioId = next.kind === 'tts'
+        ? `tts_${next.priority}_${next.text}`
+        : `sfx_${next.priority}_${next.name}`;
+      await this.playNow(next, audioId);
     }
   }
 
-  private async playNow(item: QueueItem): Promise<void> {
+  private async playNow(item: QueueItem, audioId?: string): Promise<void> {
     if (this.disposed) return;
+    
+    // Set current audio ID before playing
+    if (audioId) {
+      this.currentAudioId = audioId;
+    }
+    
     this.playing = true;
     try {
       if (!this.isSessionConnected()) {
@@ -247,6 +272,10 @@ export class AudioFeedback {
       }
     } finally {
       this.playing = false;
+      // Clear current audio ID after playback completes
+      if (audioId && this.currentAudioId === audioId) {
+        this.currentAudioId = null;
+      }
     }
   }
 
