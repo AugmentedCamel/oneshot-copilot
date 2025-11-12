@@ -248,7 +248,8 @@ class UserStateMachine:
         logger.debug(f"Procedure state initialized - username={username}, initial_step={step.id if step else None}")
         if step:
             logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={step.id}, step_name={step.name}")
-            self._on_step(username, procedure.id, step.id, step.name)
+            # DISABLED: Don't send feedback on step transitions, only on errors
+            # self._on_step(username, procedure.id, step.id, step.name)
             # Save initial status
             self._save_status_file(username)
 
@@ -635,7 +636,8 @@ class UserStateMachine:
                         logger.info(f"[STATE_MACHINE] Step progression - username={username}, from_step={from_id}, to_step={next_step.id}, cleared_inflight_frame")
                         self._on_progress(u.username, u.procedure.id, from_id, next_step.id)
                         logger.info(f"[STATE_MACHINE] User entered step - username={username}, step_id={next_step.id}, step_name={next_step.name}")
-                        self._on_step(u.username, u.procedure.id, next_step.id, next_step.name)
+                        # DISABLED: Don't send feedback on step transitions, only on errors
+                        # self._on_step(u.username, u.procedure.id, next_step.id, next_step.name)
                         # Save status after step progression
                         self._save_status_file(username)
                         step_progress_ms = (perf_counter() - step_progress_start) * 1000
