@@ -321,7 +321,7 @@ export function setupExpressRoutes(server: AppServer): void {
       }
 
       // Fetch from external API
-      const externalApiUrl = 'https://oneshotcopilot.ngrok.dev';
+      const externalApiUrl = process.env.NGROK_URL || 'https://oneshotcopilot.ngrok.dev';
       const response = await fetch(`${externalApiUrl}/api/procedure?username=${username}`);
       
       if (!response.ok) {
@@ -413,7 +413,7 @@ export function setupExpressRoutes(server: AppServer): void {
               procedureId = procedure;
             }
             
-            const backendUrl = `https://oneshotcopilot.ngrok.dev/api/start_procedure?username=${encodeURIComponent(username)}&procedure_id=${encodeURIComponent(procedureId)}`;
+            const backendUrl = `${process.env.NGROK_URL || 'https://oneshotcopilot.ngrok.dev'}/api/start_procedure?username=${encodeURIComponent(username)}&procedure_id=${encodeURIComponent(procedureId)}`;
             console.log(`[${new Date().toISOString()}] Making POST request to backend for procedure "${procedure}" (ID: ${procedureId}): ${backendUrl}`);
             
             const backendResponse = await fetch(backendUrl, {
