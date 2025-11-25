@@ -522,7 +522,7 @@ class UserStateMachine:
                             # Get target from details if available (set by rule handler)
                             if failure.details and 'target' in failure.details:
                                 target = failure.details['target']
-                            feedback_message = f"Please do not cluster the {target}"
+                            feedback_message = f"Please spread out the {target} more evenly"
                         else:
                             # Generic fallback
                             feedback_message = f"Issue detected: {failure.message}"
