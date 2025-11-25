@@ -163,7 +163,6 @@ class ProcedureService:
         source_id = frame.source_id
         
         # Find users interested in this source
-        # Inefficient O(N) lookup for now, can optimize with reverse map if needed
         target_users = [u for u, s in self._user_sources.items() if s == source_id]
         
         import time
@@ -173,6 +172,7 @@ class ProcedureService:
             if username in self._active_sessions:
                 # Iterate over copy since we might modify list
                 for session in list(self._active_sessions[username]):
+                    # logger.debug(f"Processing frame {frame.id} for user {username}, inflight={session.inflight}")
                     events = self.engine.ingest_frame(session, frame.id, now_ms)
                     
                     # Process events
@@ -195,25 +195,25 @@ class ProcedureService:
     async def _handle_vlm_dispatch(self, session: UserSession, event: VLMDispatchNeeded):
         """Execute VLM call and handle result."""
         try:
+            logger.debug(f"Starting VLM dispatch for {session.username}, frame {event.frame_id}")
             # 1. Get Frame
             frame_bytes = get_frame(event.frame_id)
             if not frame_bytes:
                 logger.error(f"Frame {event.frame_id} not found for VLM dispatch")
+                # Reset inflight if frame missing
+                session.inflight = False
                 return
 
             # 2. Prepare VLM Args
             step_def = event.step_def
-            question = step_def.get("positives", ["Is this correct?"])[0] # Use first positive as question?
-            # Actually, VLM strategy handles list of positives usually? 
-            # post_to_vlm_multipart takes 'question' (singular) and 'negatives' (list)
-            # We should probably join positives or pick the first one.
-            # The original implementation likely picked the first one.
+            question = step_def.get("positives", ["Is this correct?"])[0] 
             
             negatives = step_def.get("negatives", [])
             bounding_questions = step_def.get("bounding_questions", [])
             debug = event.debug
             
             # 3. Call VLM
+            logger.debug(f"Sending request to VLM for {session.username}...")
             response_json, _, _ = await post_to_vlm_multipart(
                 file_bytes=frame_bytes,
                 question=question,
@@ -222,9 +222,9 @@ class ProcedureService:
                 bounding_questions=bounding_questions,
                 debug=debug
             )
+            logger.debug(f"Received VLM response for {session.username}")
             
             # 4. Parse Decision
-            # Logic duplicated from vlm_callback.py - ideally should be shared
             data = response_json.get("data") or {}
             result = data.get("result")
             final = data.get("final")
@@ -270,6 +270,10 @@ class ProcedureService:
                     if session in self._active_sessions.get(session.username, []):
                         self._active_sessions[session.username].remove(session)
                     self._check_queue(session.username)
+                elif isinstance(e, VLMDispatchNeeded):
+                    # Handle chained dispatch (e.g. from buffered frame)
+                    logger.info(f"Dispatching VLM for user {session.username}, frame {e.frame_id} (buffered)")
+                    asyncio.create_task(self._handle_vlm_dispatch(session, e))
             
             # 7. Save State
             save_user_status(session.username, self._session_to_dict(session))

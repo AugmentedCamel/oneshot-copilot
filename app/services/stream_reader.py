@@ -23,12 +23,27 @@ class RtspStreamReader:
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # Capture the main event loop where the app is running
+        try:
+            self._main_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Fallback if initialized outside of an async context (e.g. tests)
+            logger.warning("RtspStreamReader initialized outside of running event loop")
+            self._main_loop = None
 
     def start(self):
         """Start the stream reading thread."""
         if self.running:
             return
         
+        # Ensure we have a loop if not captured in init
+        if not self._main_loop:
+            try:
+                self._main_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                logger.error("Cannot start RtspStreamReader: no running event loop found")
+                return
+
         self.running = True
         self._stop_event.clear()
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -47,9 +62,8 @@ class RtspStreamReader:
         """Main loop for reading frames."""
         retry_interval = 5
         
-        # Create a new event loop for this thread to call async methods
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # NOTE: We do NOT create a new event loop here. 
+        # We use self._main_loop to schedule async work on the main thread.
 
         while self.running and not self._stop_event.is_set():
             cap = cv2.VideoCapture(self.rtsp_url)
@@ -74,14 +88,15 @@ class RtspStreamReader:
                     frame_bytes = buffer.tobytes()
                     
                     # Push to IngestService
-                    # We need to run the async ingest_frame method from this synchronous thread
-                    future = asyncio.run_coroutine_threadsafe(
-                        ingest_service.ingest_frame(self.source_id, frame_bytes),
-                        loop
-                    )
-                    
-                    # Optional: wait for result or just fire and forget
-                    # future.result() 
+                    # We run the async ingest_frame method on the MAIN loop
+                    if self._main_loop and not self._main_loop.is_closed():
+                        asyncio.run_coroutine_threadsafe(
+                            ingest_service.ingest_frame(self.source_id, frame_bytes),
+                            self._main_loop
+                        )
+                    else:
+                        logger.error("Main event loop is closed or missing, cannot ingest frame")
+                        break
                     
                 except Exception as e:
                     logger.error(f"Error processing frame: {e}")
@@ -94,5 +109,3 @@ class RtspStreamReader:
             
             if self.running:
                 time.sleep(retry_interval)
-        
-        loop.close()
