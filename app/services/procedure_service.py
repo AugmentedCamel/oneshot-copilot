@@ -3,14 +3,19 @@ import asyncio
 from typing import Dict, List, Optional
 from collections import deque
 
-from app.domain.models import UserSession, ProcedureDef, UserState
+from app.domain.models import UserSession, ProcedureDef, UserState, Decision
 from app.domain.procedure_engine import ProcedureEngine
-from app.domain.events import ProcedureCompleted
+from app.domain.events import ProcedureCompleted, VLMDispatchNeeded
 from app.domain.entities import Event, EventType, Frame
 from app.models.procedure import load_procedure
 from app.services.ingest_service import ingest_service
 from app.services.status_service import save_user_status, load_user_status, delete_user_status
 from app.core.event_bus import event_bus
+from app.core.frame_store import get_frame
+from app.core.vlm_client import post_to_vlm_multipart
+from app.config import settings
+from app.services.rule_validation import RuleValidationService
+from app.services.context_analysis import ContextAnalysisService
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +25,10 @@ class ProcedureService:
         self._queued_sessions: Dict[str, deque] = {}  # username -> queue of (procedure_id, source_id) tuples
         self._user_sources: Dict[str, str] = {}  # username -> source_id (current active source)
         
-        # Initialize engine
+        # Initialize engine and services
         self.engine = ProcedureEngine()
+        self.rule_validator = RuleValidationService()
+        self.context_analyzer = ContextAnalysisService()
         
         # Subscribe to frame events
         event_bus.subscribe(EventType.FRAME_CREATED, self._on_frame_created)
@@ -178,8 +185,101 @@ class ProcedureService:
                             # Check queue
                             self._check_queue(username)
                         
+                        elif isinstance(e, VLMDispatchNeeded):
+                            logger.info(f"Dispatching VLM for user {username}, frame {e.frame_id}")
+                            asyncio.create_task(self._handle_vlm_dispatch(session, e))
+                        
                         # TODO: Publish other events to bus?
                         # event_bus.publish(...)
+
+    async def _handle_vlm_dispatch(self, session: UserSession, event: VLMDispatchNeeded):
+        """Execute VLM call and handle result."""
+        try:
+            # 1. Get Frame
+            frame_bytes = get_frame(event.frame_id)
+            if not frame_bytes:
+                logger.error(f"Frame {event.frame_id} not found for VLM dispatch")
+                return
+
+            # 2. Prepare VLM Args
+            step_def = event.step_def
+            question = step_def.get("positives", ["Is this correct?"])[0] # Use first positive as question?
+            # Actually, VLM strategy handles list of positives usually? 
+            # post_to_vlm_multipart takes 'question' (singular) and 'negatives' (list)
+            # We should probably join positives or pick the first one.
+            # The original implementation likely picked the first one.
+            
+            negatives = step_def.get("negatives", [])
+            bounding_questions = step_def.get("bounding_questions", [])
+            debug = event.debug
+            
+            # 3. Call VLM
+            response_json, _, _ = await post_to_vlm_multipart(
+                file_bytes=frame_bytes,
+                question=question,
+                negatives=negatives,
+                vlm_url=settings.VLM_URL,
+                bounding_questions=bounding_questions,
+                debug=debug
+            )
+            
+            # 4. Parse Decision
+            # Logic duplicated from vlm_callback.py - ideally should be shared
+            data = response_json.get("data") or {}
+            result = data.get("result")
+            final = data.get("final")
+            
+            if not result and not final:
+                # Fallback
+                response = response_json.get("response", {})
+                raw_json = response.get("raw_json", {})
+                result = raw_json.get("result")
+                final = raw_json.get("final")
+                
+            decision_str = final if final is not None else result
+            
+            if decision_str is None:
+                decision = Decision.NO
+            elif str(decision_str).lower() == "yes":
+                decision = Decision.YES
+            elif str(decision_str).lower() == "no":
+                decision = Decision.NO
+            else:
+                decision = Decision.NO
+                
+            logger.info(f"VLM Decision for {session.username}: {decision.value}")
+            
+            # 5. Handle Decision in Engine
+            import time
+            now_ms = int(time.time() * 1000)
+            
+            events = self.engine.handle_vlm_decision(
+                session=session,
+                frame_id=event.frame_id,
+                decision=decision,
+                vlm_response=response_json,
+                rule_validator=self.rule_validator,
+                context_analyzer=self.context_analyzer,
+                now_ms=now_ms
+            )
+            
+            # 6. Process Resulting Events
+            for e in events:
+                if isinstance(e, ProcedureCompleted):
+                    logger.info(f"Procedure {e.procedure_id} completed for user {session.username}")
+                    if session in self._active_sessions.get(session.username, []):
+                        self._active_sessions[session.username].remove(session)
+                    self._check_queue(session.username)
+            
+            # 7. Save State
+            save_user_status(session.username, self._session_to_dict(session))
+            
+        except Exception as e:
+            logger.error(f"Error handling VLM dispatch for {session.username}: {e}", exc_info=True)
+            # Should we reset inflight?
+            session.inflight = False
+            session.inflight_since_ms = None
+            save_user_status(session.username, self._session_to_dict(session))
 
     # Helper to serialize session (duplicate of vlm_callback logic, should refactor)
     def _session_to_dict(self, session: UserSession) -> Dict:

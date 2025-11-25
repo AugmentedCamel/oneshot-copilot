@@ -30,16 +30,8 @@ class IngestService:
         frame_id = str(uuid.uuid4())
         timestamp = int(time.time() * 1000)
         
-        # Save frame using existing store or new mechanism
-        # For now, reusing the idea of saving to disk/memory and passing ID
-        # In a real implementation, we might pass bytes directly or use shared memory
-        # Here we assume save_frame returns a path or we just use the ID if it stores in memory
-        # Adapting to existing frame_store.py which uses a dict or file
-        # Let's assume we just pass the ID and the data is stored
-        
-        # TODO: Refactor frame_store to be more robust or use a proper Frame object
-        # For now, we'll use the existing save_frame helper if available or mock it
-        # save_frame(frame_id, frame_data) 
+        # Save frame using existing store
+        store_frame(frame_id, frame_data) 
         
         # Create Frame entity
         frame = Frame(

@@ -126,6 +126,7 @@ def session_to_dict(session: UserSession) -> Dict:
         # Assuming simple dict conversion for now
         # Ideally, we shouldn't duplicate procedure def in every session file, 
         # but for now we follow the existing pattern implied by reconstruct_session
+        data["id"] = session.procedure.id  # Required for save_user_status
         data["procedure"] = {
             "id": session.procedure.id,
             "name": session.procedure.name,
