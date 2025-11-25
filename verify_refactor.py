@@ -53,7 +53,7 @@ async def main():
 
     event_bus.subscribe_all(on_event)
 
-    # 5. Ingest Frame
+    # 5. Ingest Frame via Service (simulating API call)
     logger.info("Ingesting frame...")
     await ingest_service.ingest_frame("src_test", b"fake_image_data")
 

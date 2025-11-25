@@ -2,14 +2,10 @@
 import asyncio
 import logging
 from fastapi import FastAPI
-from app.api import ingest, vlm_callback, procedure
-from app.config import VERBOSE_LOGGING, FRAME_QUEUE_SIZE
+from app.config import VERBOSE_LOGGING
 from app.core.vlm_client import init_http_client, close_http_client
 from app.core.vlm_strategies.auki_local_vlm import close_websocket_connection
-from app.core.frame_queue import init_frame_queue
-from app.core.vlm_worker import start_vlm_worker, stop_vlm_worker
 from app.core.metrics import init_metrics_collector
-from app.services.procedure_manager import ProcedureManager
 
 # ============================================================================
 # LOGGING CONFIGURATION
@@ -63,16 +59,15 @@ logger.info("Initializing Oneshot Copilot application")
 app = FastAPI(
     title="Oneshot Copilot",
     description="A copilot that helps users complete procedures step-by-step using computer vision",
-    version="1.0.0"
+    version="2.0.0"
 )
-logger.info("FastAPI application created: Oneshot Copilot v1.0.0")
+logger.info("FastAPI application created: Oneshot Copilot v2.0.0")
 
 # Include routers
 logger.debug("Registering API routers...")
-app.include_router(procedure.router, prefix="/api", tags=["Procedure Control"])
-logger.debug("Registered Procedure Control router at /api")
-app.include_router(ingest.router, prefix="/api", tags=["Frame Ingestion"])
-logger.debug("Registered Frame Ingestion router at /api")
+
+# VLM Callback (Still needed for some VLM strategies)
+from app.api import vlm_callback
 app.include_router(vlm_callback.router, prefix="/api", tags=["VLM Callback"])
 logger.debug("Registered VLM Callback router at /api")
 
@@ -80,6 +75,11 @@ logger.debug("Registered VLM Callback router at /api")
 from app.api import control_plane
 app.include_router(control_plane.router, prefix="/api/v2", tags=["Control Plane"])
 logger.debug("Registered Control Plane router at /api/v2")
+
+# Manual Ingest (Debug)
+from app.api import ingest_v2
+app.include_router(ingest_v2.router, prefix="/api/v2", tags=["Debug Ingest"])
+logger.debug("Registered Debug Ingest router at /api/v2")
 
 logger.info("All API routers registered successfully")
 
@@ -93,26 +93,9 @@ from app.services.feedback_service import feedback_service
 logger.info("Initialized new architecture services (EventBus, Ingest, Orchestrator, Runtime, RuleEngine, Feedback)")
 
 
-# Background task for timeout checking
-_tick_task = None
+# Background task for stream ingestion
 _stream_task = None
 _stream_retry_event = asyncio.Event()
-
-async def tick_all_users():
-    """Background task to tick all users periodically."""
-    from app.services.procedure_manager import ProcedureManager
-    # We need to access the singleton instance used by the API
-    # Since ProcedureManager is instantiated in app.api.procedure, we should import it from there or use a singleton pattern
-    # For now, we'll assume app.api.procedure has a 'manager' instance
-    from app.api.procedure import manager
-    
-    logger.info("Starting user tick loop")
-    while True:
-        try:
-            manager.tick_all_users()
-        except Exception as e:
-            logger.error(f"Error in tick_all_users: {e}")
-        await asyncio.sleep(1.0) # Tick every second
 
 async def stream_ingestion_task():
     """
@@ -136,27 +119,28 @@ async def stream_ingestion_task():
             
             logger.info(f"Attempting to connect to stream: {settings.RTSP_STREAM_URL}")
             
+            # TODO: Refactor StreamQualityFilter to use IngestService directly
+            # For now, we keep it but it might need updates to post to the new endpoint or call service directly
+            # This part is still legacy-ish but kept for RTSP support until fully refactored
             filter_pipeline = StreamQualityFilter(
                 input_rtsp_url=settings.RTSP_STREAM_URL,
-                post_url=f"{settings.SELF_URL}/api/ingest",
-                post_question="Analyze this frame",
+                post_url=f"{settings.SELF_URL}/api/v2/ingest/frame", # Updated to new endpoint
+                post_question="Analyze this frame", # Legacy param, ignored by new endpoint
                 post_verify_ssl=False,
-                min_frame_interval=0.0,  # No frame interval limit (disabled)
+                min_frame_interval=0.0,
                 low_latency_mode=True,
-                post_timeout=30,  # Longer timeout for local requests
+                post_timeout=30,
                 blur_threshold=100.0,
                 brightness_min=50.0,
                 brightness_max=250.0,
-                post_username=settings.STREAM_USERNAME
+                post_username=settings.STREAM_USERNAME # Used as source_id?
             )
             
             logger.info(f"Stream connection established, starting frame processing...")
             
             # Run in thread pool to avoid blocking the event loop
-            # This will block until the stream disconnects or an error occurs
             await asyncio.to_thread(filter_pipeline.run)
             
-            # If we reach here, the stream has ended or disconnected
             logger.warning(f"Stream disconnected, will retry in {retry_interval}s")
             
         except Exception as e:
@@ -185,7 +169,7 @@ def trigger_stream_reconnect():
 @app.on_event("startup")
 async def startup_event():
     """Log startup event and start background tasks."""
-    global _tick_task, _stream_task, _stream_retry_event
+    global _stream_task, _stream_retry_event
     logger.info("=" * 60)
     logger.info("APPLICATION STARTUP")
     
@@ -194,24 +178,10 @@ async def startup_event():
     await init_http_client()
     logger.info("HTTP client initialized successfully")
     
-    # Initialize frame queue
-    logger.info(f"Initializing frame queue with size={FRAME_QUEUE_SIZE}...")
-    init_frame_queue(maxsize=FRAME_QUEUE_SIZE)
-    logger.info("Frame queue initialized successfully")
-    
     # Initialize metrics collector
     logger.info("Initializing metrics collector...")
     init_metrics_collector()
     logger.info("Metrics collector initialized successfully")
-    
-    # Start VLM worker task
-    logger.info("Starting VLM worker task...")
-    await start_vlm_worker()
-    logger.info("VLM worker task started successfully")
-    
-    logger.info("Starting background timeout checker...")
-    _tick_task = asyncio.create_task(tick_all_users())
-    logger.info("Background timeout checker started")
     
     # Initialize stream retry event
     _stream_retry_event = asyncio.Event()
@@ -228,22 +198,10 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Log shutdown event and cancel background tasks."""
-    global _tick_task, _stream_task
+    global _stream_task
     logger.info("=" * 60)
     logger.info("APPLICATION SHUTDOWN")
     
-    # Stop VLM worker task first
-    logger.info("Stopping VLM worker task...")
-    await stop_vlm_worker()
-    logger.info("VLM worker task stopped successfully")
-    
-    if _tick_task:
-        logger.info("Cancelling background timeout checker...")
-        _tick_task.cancel()
-        try:
-            await _tick_task
-        except asyncio.CancelledError:
-            logger.info("Background timeout checker cancelled")
     if _stream_task:
         logger.info("Cancelling stream ingestion task...")
         _stream_task.cancel()
@@ -280,7 +238,7 @@ async def root():
     logger.debug("Root endpoint accessed")
     return {
         "name": "Oneshot Copilot",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "running"
     }
 
