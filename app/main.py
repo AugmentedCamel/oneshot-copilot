@@ -65,7 +65,6 @@ logger.info("FastAPI application created: Oneshot Copilot v2.0.0")
 
 # Include routers
 logger.debug("Registering API routers...")
-
 # VLM Callback (Still needed for some VLM strategies)
 from app.api import vlm_callback
 app.include_router(vlm_callback.router, prefix="/api", tags=["VLM Callback"])
@@ -75,6 +74,10 @@ logger.debug("Registered VLM Callback router at /api")
 from app.api import control_plane
 app.include_router(control_plane.router, prefix="/api/v2", tags=["Control Plane"])
 logger.debug("Registered Control Plane router at /api/v2")
+
+from app.api import procedure_v2
+app.include_router(procedure_v2.router, prefix="/api/v2", tags=["Procedures"])
+logger.debug("Registered Procedure router at /api/v2")
 
 # Manual Ingest (Debug)
 from app.api import ingest_v2
@@ -90,88 +93,16 @@ from app.services.job_orchestrator import job_orchestrator
 from app.services.model_runtime import model_runtime
 from app.services.rule_engine import rule_engine
 from app.services.feedback_service import feedback_service
-logger.info("Initialized new architecture services (EventBus, Ingest, Orchestrator, Runtime, RuleEngine, Feedback)")
+from app.services.procedure_service import procedure_service
+from app.core.startup import run_startup_initialization, run_shutdown_cleanup
 
+logger.info("Initialized new architecture services (EventBus, Ingest, Orchestrator, Runtime, RuleEngine, Feedback, Procedure)")
 
-# Background task for stream ingestion
-_stream_task = None
-_stream_retry_event = asyncio.Event()
-
-async def stream_ingestion_task():
-    """
-    Background task for RTSP/RTMP stream ingestion with automatic retry.
-    Continuously attempts to connect to the stream with configurable retry intervals.
-    """
-    from app.config import settings
-    
-    if not settings.RTSP_STREAM_URL:
-        logger.info("No RTSP stream configured (RTSP_STREAM_URL is empty), skipping stream ingestion")
-        return
-    
-    retry_interval = 10  # Retry every 10 seconds if stream is unavailable
-    logger.info(f"Stream ingestion task started - will check for stream every {retry_interval}s")
-    logger.info(f"Target stream: {settings.RTSP_STREAM_URL}")
-    logger.info(f"Stream username: {settings.STREAM_USERNAME}")
-    
-    while True:
-        try:
-            from app.services.stream_quality_filter import StreamQualityFilter
-            
-            logger.info(f"Attempting to connect to stream: {settings.RTSP_STREAM_URL}")
-            
-            # TODO: Refactor StreamQualityFilter to use IngestService directly
-            # For now, we keep it but it might need updates to post to the new endpoint or call service directly
-            # This part is still legacy-ish but kept for RTSP support until fully refactored
-            filter_pipeline = StreamQualityFilter(
-                input_rtsp_url=settings.RTSP_STREAM_URL,
-                post_url=f"{settings.SELF_URL}/api/v2/ingest/frame", # Updated to new endpoint
-                post_question="Analyze this frame", # Legacy param, ignored by new endpoint
-                post_verify_ssl=False,
-                min_frame_interval=0.0,
-                low_latency_mode=True,
-                post_timeout=30,
-                blur_threshold=100.0,
-                brightness_min=50.0,
-                brightness_max=250.0,
-                post_username=settings.STREAM_USERNAME # Used as source_id?
-            )
-            
-            logger.info(f"Stream connection established, starting frame processing...")
-            
-            # Run in thread pool to avoid blocking the event loop
-            await asyncio.to_thread(filter_pipeline.run)
-            
-            logger.warning(f"Stream disconnected, will retry in {retry_interval}s")
-            
-        except Exception as e:
-            logger.error(f"Stream connection failed: {str(e)}")
-            logger.info(f"Will retry connection in {retry_interval}s")
-        
-        # Wait for retry interval or until signaled to retry immediately
-        try:
-            await asyncio.wait_for(_stream_retry_event.wait(), timeout=retry_interval)
-            _stream_retry_event.clear()
-            logger.info("Received retry signal, attempting immediate reconnection...")
-        except asyncio.TimeoutError:
-            # Timeout is normal - time to retry
-            logger.debug(f"Retry interval elapsed, attempting to reconnect...")
-
-def trigger_stream_reconnect():
-    """
-    Signal the stream ingestion task to immediately attempt reconnection.
-    Useful when you know a stream has become available.
-    """
-    global _stream_retry_event
-    if _stream_retry_event:
-        _stream_retry_event.set()
-        logger.info("Stream reconnection triggered")
 
 @app.on_event("startup")
 async def startup_event():
     """Log startup event and start background tasks."""
-    global _stream_task, _stream_retry_event
     logger.info("=" * 60)
-    logger.info("APPLICATION STARTUP")
     
     # Initialize singleton HTTP client for VLM requests
     logger.info("Initializing HTTP client for VLM requests...")
@@ -183,13 +114,8 @@ async def startup_event():
     init_metrics_collector()
     logger.info("Metrics collector initialized successfully")
     
-    # Initialize stream retry event
-    _stream_retry_event = asyncio.Event()
-    
-    # Start stream ingestion task if configured
-    logger.info("Starting stream ingestion task...")
-    _stream_task = asyncio.create_task(stream_ingestion_task())
-    logger.info("Stream ingestion task started (will check for stream periodically)")
+    # Run new architecture startup initialization
+    await run_startup_initialization()
     
     logger.info("Oneshot Copilot is ready to accept requests")
     logger.info("=" * 60)
@@ -198,17 +124,11 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Log shutdown event and cancel background tasks."""
-    global _stream_task
     logger.info("=" * 60)
     logger.info("APPLICATION SHUTDOWN")
     
-    if _stream_task:
-        logger.info("Cancelling stream ingestion task...")
-        _stream_task.cancel()
-        try:
-            await _stream_task
-        except asyncio.CancelledError:
-            logger.info("Stream ingestion task cancelled")
+    # Run new architecture shutdown cleanup
+    await run_shutdown_cleanup()
     
     # Close singleton HTTP client
     logger.info("Closing HTTP client...")

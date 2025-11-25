@@ -35,3 +35,25 @@ async def register_feedback_channel(channel: FeedbackChannel):
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "components": ["ingest", "orchestrator", "feedback"]}
+
+@router.get("/debug/status")
+async def get_debug_status():
+    """Get full server state for debugging."""
+    try:
+        from app.services.procedure_service import procedure_service
+        from dataclasses import asdict
+        
+        sources = ingest_service.get_all_sources()
+        proc_state = procedure_service.get_debug_state()
+        
+        return {
+            "sources": [asdict(s) for s in sources],
+            "procedures": proc_state,
+            "jobs": [] # TODO: Add job orchestrator state if needed
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }

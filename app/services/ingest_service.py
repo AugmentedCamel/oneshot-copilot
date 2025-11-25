@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from app.domain.entities import Source, Frame, Event, EventType
 from app.core.event_bus import event_bus
 from app.core.frame_store import store_frame  # Assuming we reuse existing frame store logic or adapt it
@@ -18,6 +18,9 @@ class IngestService:
 
     def get_source(self, source_id: str) -> Optional[Source]:
         return self._sources.get(source_id)
+
+    def get_all_sources(self) -> List[Source]:
+        return list(self._sources.values())
 
     async def ingest_frame(self, source_id: str, frame_data: bytes, metadata: Dict = None):
         if source_id not in self._sources:
