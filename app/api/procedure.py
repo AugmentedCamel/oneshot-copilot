@@ -6,22 +6,16 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Optional
 from app.config import settings
-from app.core.statemachine import UserStateMachine
-from app.core.callbacks import on_step_sync, on_progress_sync, post_to_vlm_sync
 from app.models.procedure import load_procedure
+from app.services.procedure_manager import ProcedureManager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Create shared state machine instance (singleton)
-logger.info("Initializing UserStateMachine...")
-machine = UserStateMachine(
-    on_step=on_step_sync,
-    on_progress_step=on_progress_sync,
-    post_to_vlm=post_to_vlm_sync,
-    max_frames_per_user=settings.MAX_FRAMES_PER_USER
-)
-logger.info(f"UserStateMachine initialized with max_frames_per_user={settings.MAX_FRAMES_PER_USER}")
+# Create shared ProcedureManager instance (singleton)
+logger.info("Initializing ProcedureManager...")
+manager = ProcedureManager()
+logger.info("ProcedureManager initialized")
 
 
 def discover_procedures() -> Dict[str, str]:
@@ -115,7 +109,7 @@ async def start_procedure(
         logger.debug(f"Procedure loaded: id={proc.id}, name={proc.name}, version={proc.version}, steps={len(proc.steps)}")
         
         logger.info(f"Starting procedure for user '{username}': {proc.id}")
-        machine.start_procedure(username, proc)
+        manager.start_procedure(username, proc)
         logger.info(f"[START_PROCEDURE] Success - username={username}, procedure_id={proc.id}")
         return {"ok": True, "procedure_id": proc.id}
         
@@ -194,7 +188,7 @@ async def status(username: str) -> Dict:
         Status object with state, current step, etc.
     """
     logger.debug(f"[STATUS] Request received - username={username}")
-    status_data = machine.status(username)
+    status_data = manager.get_status(username)
     logger.debug(f"[STATUS] Response - username={username}, state={status_data.get('state')}, step_id={status_data.get('current_step_id')}")
     return status_data
 
@@ -211,7 +205,7 @@ async def pause(username: str) -> Dict:
         Success response
     """
     logger.info(f"[PAUSE] Request received - username={username}")
-    machine.pause(username)
+    manager.pause(username)
     logger.info(f"[PAUSE] Success - username={username}")
     return {"ok": True}
 
@@ -228,7 +222,7 @@ async def resume(username: str) -> Dict:
         Success response
     """
     logger.info(f"[RESUME] Request received - username={username}")
-    machine.resume(username)
+    manager.resume(username)
     logger.info(f"[RESUME] Success - username={username}")
     return {"ok": True}
 
@@ -245,7 +239,7 @@ async def abort(username: str) -> Dict:
         Success response
     """
     logger.info(f"[ABORT] Request received - username={username}")
-    machine.abort(username)
+    manager.abort(username)
     logger.info(f"[ABORT] Success - username={username}")
     return {"ok": True}
 
@@ -275,7 +269,7 @@ async def get_procedure_status(username: str) -> Dict:
     
     # First, check state machine for active procedure (prioritize running procedures)
     logger.info(f"[GET_PROCEDURE_STATUS] Checking state machine for active procedure - username={username}")
-    status_data = machine.get_procedure_status(username)
+    status_data = manager.get_procedure_status(username)
     
     if status_data:
         # Found active procedure in state machine - return it
@@ -355,4 +349,3 @@ async def trigger_stream_reconnect_endpoint() -> Dict:
     except Exception as e:
         logger.error(f"[STREAM] Failed to trigger reconnection: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to trigger reconnection: {str(e)}")
-    return status_data

@@ -9,6 +9,7 @@ from app.core.vlm_strategies.auki_local_vlm import close_websocket_connection
 from app.core.frame_queue import init_frame_queue
 from app.core.vlm_worker import start_vlm_worker, stop_vlm_worker
 from app.core.metrics import init_metrics_collector
+from app.services.procedure_manager import ProcedureManager
 
 # ============================================================================
 # LOGGING CONFIGURATION
@@ -74,7 +75,22 @@ app.include_router(ingest.router, prefix="/api", tags=["Frame Ingestion"])
 logger.debug("Registered Frame Ingestion router at /api")
 app.include_router(vlm_callback.router, prefix="/api", tags=["VLM Callback"])
 logger.debug("Registered VLM Callback router at /api")
-logger.info("All API routers registered successfully with /api prefix")
+
+# New Architecture Routers
+from app.api import control_plane
+app.include_router(control_plane.router, prefix="/api/v2", tags=["Control Plane"])
+logger.debug("Registered Control Plane router at /api/v2")
+
+logger.info("All API routers registered successfully")
+
+# Initialize new services
+from app.core.event_bus import event_bus
+from app.services.ingest_service import ingest_service
+from app.services.job_orchestrator import job_orchestrator
+from app.services.model_runtime import model_runtime
+from app.services.rule_engine import rule_engine
+from app.services.feedback_service import feedback_service
+logger.info("Initialized new architecture services (EventBus, Ingest, Orchestrator, Runtime, RuleEngine, Feedback)")
 
 
 # Background task for timeout checking
@@ -83,24 +99,20 @@ _stream_task = None
 _stream_retry_event = asyncio.Event()
 
 async def tick_all_users():
-    """Background task that periodically checks for timeouts."""
-    logger.info("Starting background tick task for timeout checking")
+    """Background task to tick all users periodically."""
+    from app.services.procedure_manager import ProcedureManager
+    # We need to access the singleton instance used by the API
+    # Since ProcedureManager is instantiated in app.api.procedure, we should import it from there or use a singleton pattern
+    # For now, we'll assume app.api.procedure has a 'manager' instance
+    from app.api.procedure import manager
+    
+    logger.info("Starting user tick loop")
     while True:
         try:
-            # Get all active users from the state machine
-            from app.api.procedure import machine
-            if machine._users:
-                for username in list(machine._users.keys()):
-                    try:
-                        machine.tick(username)
-                    except Exception as e:
-                        logger.error(f"Error in tick for user {username}: {str(e)}", exc_info=True)
-            
-            # Check every 100ms for responsive timeout detection
-            await asyncio.sleep(0.1)
+            manager.tick_all_users()
         except Exception as e:
-            logger.error(f"Error in tick_all_users background task: {str(e)}", exc_info=True)
-            await asyncio.sleep(1.0)
+            logger.error(f"Error in tick_all_users: {e}")
+        await asyncio.sleep(1.0) # Tick every second
 
 async def stream_ingestion_task():
     """

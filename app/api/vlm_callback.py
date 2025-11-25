@@ -2,8 +2,8 @@
 import logging
 from fastapi import APIRouter, Request, HTTPException
 from typing import Dict
-from app.models.state import Decision
-from app.api.procedure import machine
+from app.domain.models import Decision
+from app.api.procedure import manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -148,7 +148,7 @@ async def vlm_callback(request: Request) -> Dict:
         logger.info(f"[VLM_CALLBACK] Processing decision - username={username}, frame_id={frame_id}, decision={decision.value}")
         # Pass the entire payload which contains request/response structure
         print(f"\n[VLM_CALLBACK DEBUG] Passing full payload to state machine - keys: {list(payload.keys())}")
-        machine.vlm_decision(username, frame_id, decision, vlm_response=payload)
+        await manager.handle_vlm_decision(username, frame_id, decision, vlm_response=payload)
         logger.info(f"[VLM_CALLBACK] Success - username={username}, frame_id={frame_id}, decision={decision.value}")
         logger.info(f"[VLM_RESPONSE] user={username} frame_id={frame_id} decision={decision.value}")
         

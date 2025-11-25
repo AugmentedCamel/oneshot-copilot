@@ -26,7 +26,7 @@ async def vlm_worker_loop():
     - Logs processing times and queue metrics
     """
     from app.core.frame_queue import get_frame_queue
-    from app.api.procedure import machine
+    from app.api.procedure import manager
     
     global _worker_running
     _worker_running = True
@@ -68,7 +68,7 @@ async def vlm_worker_loop():
                 # Pass frame to state machine for processing
                 # The state machine will handle dispatching to VLM if appropriate
                 # Note: VLM processing happens asynchronously in callback, metrics collected there
-                machine.ingest_frame(item.user_id, frame_id)
+                manager.ingest_frame(item.user_id, frame_id)
                 
                 # Calculate processing time (just the state machine call, not VLM)
                 process_duration_ms = (time() - process_start) * 1000
