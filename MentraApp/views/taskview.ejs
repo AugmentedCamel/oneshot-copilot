@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -25,360 +26,376 @@
         }
     </style>
 </head>
+
 <body>
-<!-- Settings Button -->
-<button class="settings-btn" id="settingsBtn" aria-label="Settings">⚙️</button>
+    <!-- Settings Button -->
+    <button class="settings-btn" id="settingsBtn" aria-label="Settings">⚙️</button>
 
-<!-- Settings Backdrop -->
-<div class="settings-backdrop" id="settingsBackdrop"></div>
+    <!-- Settings Backdrop -->
+    <div class="settings-backdrop" id="settingsBackdrop"></div>
 
-<!-- Settings Overlay -->
-<div class="settings-overlay" id="settingsOverlay">
-    <div class="settings-header">
-        <h2>Settings</h2>
-    </div>
-    <div class="settings-content">
-        <div class="setting-item">
-            <div>
-                <div class="setting-label">Text-to-Speech (TTS)</div>
-                <div class="toggle-status" id="ttsStatus">Loading...</div>
-            </div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="ttsToggle">
-                <span class="slider"></span>
-            </label>
+    <!-- Settings Overlay -->
+    <div class="settings-overlay" id="settingsOverlay">
+        <div class="settings-header">
+            <h2>Settings</h2>
         </div>
-    </div>
-</div>
-
-<div class="container">
-    <header>
-        <h1>amicooked?</h1>
-        <% if (userId) { %>
-            <p class="user-info">Welcome, <span id="username">loading...</span></p>
-        <% } %>
-    </header>
-    
-    <div class="instructions">
-        <% if (userId) { %>
-            <p>User ID: <span class="user-id"><%= userId %></span></p>
-            <p>Currently running: <span class="user-id"><%= procedure %></span></p>
-        <% } else { %>
-            <p>Not logged in</p>
-        <% } %>
-    </div>
-
-    <!-- Procedure Checklist -->
-    <div class="procedure-container">
-        <!-- Loading State -->
-        <div id="loading-state" class="state-message" style="display: none;">
-            Loading procedure...
-        </div>
-
-        <!-- Empty State -->
-        <div id="empty-state" class="state-message" style="display: none;">
-            No procedure found
-        </div>
-
-        <!-- Procedure Content -->
-        <div id="procedure-content" style="display: none;">
-            <!-- Header -->
-            <div class="procedure-header">
-                <h2 id="procedure-title" class="procedure-title"></h2>
-                <div class="progress-container">
-                    <svg class="progress-circle" width="120" height="120">
-                        <circle class="progress-bg" cx="60" cy="60" r="50"></circle>
-                        <circle id="progress-bar" class="progress-bar" cx="60" cy="60" r="50"></circle>
-                    </svg>
-                    <div id="progress-text" class="progress-text">0/0</div>
+        <div class="settings-content">
+            <div class="setting-item">
+                <div>
+                    <div class="setting-label">Text-to-Speech (TTS)</div>
+                    <div class="toggle-status" id="ttsStatus">Loading...</div>
                 </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="ttsToggle">
+                    <span class="slider"></span>
+                </label>
             </div>
-
-            <!-- Checklist -->
-            <div id="checklist-container" class="checklist"></div>
-
-            <!-- Polling Indicator -->
-            <div class="polling-indicator"></div>
         </div>
     </div>
 
-    <div class="button-container">
-        <button class="start-stream-btn" id="stopStreamBtn">Stop Stream</button>
+    <div class="container">
+        <header>
+            <h1>amicooked?</h1>
+            <% if (userId) { %>
+                <p class="user-info">Welcome, <span id="username">loading...</span></p>
+                <% } %>
+        </header>
+
+        <div class="instructions">
+            <% if (userId) { %>
+                <p>User ID: <span class="user-id">
+                        <%= userId %>
+                    </span></p>
+                <p>Currently running: <span class="user-id">
+                        <%= procedure %>
+                    </span></p>
+                <% } else { %>
+                    <p>Not logged in</p>
+                    <% } %>
+        </div>
+
+        <!-- Procedure Checklist -->
+        <div class="procedure-container">
+            <!-- Loading State -->
+            <div id="loading-state" class="state-message" style="display: none;">
+                Loading procedure...
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="state-message" style="display: none;">
+                No procedure found
+            </div>
+
+            <!-- Procedure Content -->
+            <div id="procedure-content" style="display: none;">
+                <!-- Header -->
+                <div class="procedure-header">
+                    <h2 id="procedure-title" class="procedure-title"></h2>
+                    <div class="progress-container">
+                        <svg class="progress-circle" width="120" height="120">
+                            <circle class="progress-bg" cx="60" cy="60" r="50"></circle>
+                            <circle id="progress-bar" class="progress-bar" cx="60" cy="60" r="50"></circle>
+                        </svg>
+                        <div id="progress-text" class="progress-text">0/0</div>
+                    </div>
+                </div>
+
+                <!-- Checklist -->
+                <div id="checklist-container" class="checklist"></div>
+
+                <!-- Polling Indicator -->
+                <div class="polling-indicator"></div>
+            </div>
+        </div>
+
+        <div class="button-container">
+            <button class="start-stream-btn" id="stopStreamBtn">Stop Stream</button>
+        </div>
     </div>
-</div>
 
-<script>
-    // Settings overlay functionality
-    const settingsBtn = document.getElementById('settingsBtn');
-    const settingsOverlay = document.getElementById('settingsOverlay');
-    const settingsBackdrop = document.getElementById('settingsBackdrop');
-    const ttsToggle = document.getElementById('ttsToggle');
-    const ttsStatus = document.getElementById('ttsStatus');
+    <script>
+        // Settings overlay functionality
+        const settingsBtn = document.getElementById('settingsBtn');
+        const settingsOverlay = document.getElementById('settingsOverlay');
+        const settingsBackdrop = document.getElementById('settingsBackdrop');
+        const ttsToggle = document.getElementById('ttsToggle');
+        const ttsStatus = document.getElementById('ttsStatus');
 
-    function toggleSettings() {
-        const isOpen = settingsOverlay.classList.contains('open');
-        if (isOpen) {
-            closeSettingsPanel();
-        } else {
-            openSettings();
-        }
-    }
-
-    function openSettings() {
-        settingsOverlay.classList.add('open');
-        settingsBackdrop.classList.add('open');
-        settingsBtn.classList.add('active');
-    }
-
-    function closeSettingsPanel() {
-        settingsOverlay.classList.remove('open');
-        settingsBackdrop.classList.remove('open');
-        settingsBtn.classList.remove('active');
-    }
-
-    settingsBtn.addEventListener('click', toggleSettings);
-    settingsBackdrop.addEventListener('click', closeSettingsPanel);
-
-    // Update TTS status text
-    function updateTTSStatus(enabled) {
-        ttsStatus.textContent = enabled ? 'Enabled' : 'Disabled';
-        ttsStatus.style.color = enabled ? 'var(--success-color)' : 'var(--secondary-color)';
-    }
-
-    // Fetch the user's login name
-    async function fetchUsername() {
-        try {
-            const response = await fetch('/api/get-login-name');
-            const data = await response.json();
-            
-            if (data.success && data.name) {
-                document.getElementById('username').textContent = data.name;
+        function toggleSettings() {
+            const isOpen = settingsOverlay.classList.contains('open');
+            if (isOpen) {
+                closeSettingsPanel();
+            } else {
+                openSettings();
             }
-        } catch (error) {
-            console.error('Error fetching username:', error);
         }
-    }
 
+        function openSettings() {
+            settingsOverlay.classList.add('open');
+            settingsBackdrop.classList.add('open');
+            settingsBtn.classList.add('active');
+        }
 
-    // Procedure polling variables
-    let procedureUsername = '';
-    let pollInterval = null;
+        function closeSettingsPanel() {
+            settingsOverlay.classList.remove('open');
+            settingsBackdrop.classList.remove('open');
+            settingsBtn.classList.remove('active');
+        }
 
-    // Fetch procedure data from backend
-    async function fetchProcedure() {
-        if (!procedureUsername) return;
-        
-        try {
-            const response = await fetch(`/api/procedure?username=${procedureUsername}`);
-            
-            if (!response.ok) {
-                console.error('Failed to fetch procedure');
+        settingsBtn.addEventListener('click', toggleSettings);
+        settingsBackdrop.addEventListener('click', closeSettingsPanel);
+
+        // Update TTS status text
+        function updateTTSStatus(enabled) {
+            ttsStatus.textContent = enabled ? 'Enabled' : 'Disabled';
+            ttsStatus.style.color = enabled ? 'var(--success-color)' : 'var(--secondary-color)';
+        }
+
+        // Fetch the user's login name
+        async function fetchUsername() {
+            try {
+                const response = await fetch('/api/get-login-name');
+                const data = await response.json();
+
+                if (data.success && data.name) {
+                    document.getElementById('username').textContent = data.name;
+                }
+            } catch (error) {
+                console.error('Error fetching username:', error);
+            }
+        }
+
+        // Procedure polling variables
+        let procedureUsername = '';
+        let pollInterval = null;
+
+        // Fetch procedure data from backend
+        async function fetchProcedure() {
+            if (!procedureUsername) return;
+
+            try {
+                // Use new v2 status API
+                const response = await fetch(`/api/v2/status?camera_id=${procedureUsername}`);
+
+                if (!response.ok) {
+                    console.error('Failed to fetch procedure status');
+                    document.getElementById('loading-state').style.display = 'none';
+                    document.getElementById('empty-state').style.display = 'flex';
+                    document.getElementById('procedure-content').style.display = 'none';
+                    return;
+                }
+
+                const data = await response.json();
+
+                // Check if we have an active procedure
+                if (data.procedure) {
+                    renderProcedure(data.procedure);
+
+                    // Hide loading, show content
+                    document.getElementById('loading-state').style.display = 'none';
+                    document.getElementById('empty-state').style.display = 'none';
+                    document.getElementById('procedure-content').style.display = 'block';
+                } else {
+                    // IDLE state or no procedure
+                    document.getElementById('loading-state').style.display = 'none';
+                    document.getElementById('empty-state').style.display = 'flex';
+                    document.getElementById('procedure-content').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error fetching procedure:', error);
                 document.getElementById('loading-state').style.display = 'none';
                 document.getElementById('empty-state').style.display = 'flex';
                 document.getElementById('procedure-content').style.display = 'none';
-                return;
             }
-            
-            const data = await response.json();
-            renderProcedure(data);
-            
-            // Hide loading, show content
-            document.getElementById('loading-state').style.display = 'none';
-            document.getElementById('empty-state').style.display = 'none';
-            document.getElementById('procedure-content').style.display = 'block';
-        } catch (error) {
-            console.error('Error fetching procedure:', error);
-            document.getElementById('loading-state').style.display = 'none';
-            document.getElementById('empty-state').style.display = 'flex';
-            document.getElementById('procedure-content').style.display = 'none';
         }
-    }
 
-    // Render procedure data
-    function renderProcedure(data) {
-        // Update title
-        document.getElementById('procedure-title').textContent = data.name || data.title || 'Procedure';
-        
-        // Calculate progress
-        const steps = data.steps || [];
-        const completedCount = steps.filter(step => 
-            step.status === 'done' || step.completed === true
-        ).length;
-        const totalCount = steps.length;
-        
-        // Update progress circle
-        const circumference = 2 * Math.PI * 50; // r = 50
-        const progress = totalCount > 0 ? (completedCount / totalCount) : 0;
-        const offset = circumference * (1 - progress);
-        document.getElementById('progress-bar').style.strokeDashoffset = offset;
-        
-        // Update progress text
-        document.getElementById('progress-text').textContent = `${completedCount}/${totalCount}`;
-        
-        // Find next task index
-        const nextTaskIndex = steps.findIndex(step => 
-            step.status !== 'done' && step.completed !== true
-        );
-        
-        // Render checklist items
-        const checklistContainer = document.getElementById('checklist-container');
-        checklistContainer.innerHTML = steps.map((step, index) => {
-            const isCompleted = step.status === 'done' || step.completed === true;
-            const isNext = index === nextTaskIndex;
-            const isFuture = !isCompleted && index > nextTaskIndex && nextTaskIndex !== -1;
-            
-            let itemClass = 'checklist-item';
-            if (isCompleted) itemClass += ' completed';
-            if (isNext) itemClass += ' next';
-            if (isFuture) itemClass += ' future';
-            
-            const checkIcon = isCompleted 
-                ? `<svg class="check-icon" viewBox="0 0 24 24">
-                     <circle class="check-circle" cx="12" cy="12" r="10"></circle>
-                     <path class="check-path" d="M9 12l2 2 4-4"></path>
-                   </svg>`
-                : `<svg class="check-icon" viewBox="0 0 24 24">
-                     <circle class="unchecked-circle" cx="12" cy="12" r="10"></circle>
-                   </svg>`;
-            
-            const stepTitle = step.name || step.title || 'Untitled Step';
-            
-            return `
-                <div class="${itemClass}">
-                    ${checkIcon}
-                    <span class="item-text">${stepTitle}</span>
-                </div>
-            `;
-        }).join('');
-    }
+        // Render procedure data
+        function renderProcedure(data) {
+            // Update title
+            document.getElementById('procedure-title').textContent = data.name || data.title || 'Procedure';
 
-    // Start procedure polling
-    async function startProcedurePolling() {
-        // Show loading state
-        document.getElementById('loading-state').style.display = 'flex';
-        document.getElementById('empty-state').style.display = 'none';
-        document.getElementById('procedure-content').style.display = 'none';
-        
-        // Get username from the API
-        try {
-            const response = await fetch('/api/get-login-name');
-            const data = await response.json();
-            
-            if (data.success && data.name) {
-                procedureUsername = data.name;
-                
-                // Start polling immediately and then every second
-                fetchProcedure();
-                pollInterval = setInterval(fetchProcedure, 1000);
-            } else {
-                console.error('Failed to get username');
+            // Calculate progress
+            const steps = data.steps || [];
+            const completedCount = steps.filter(step =>
+                step.status === 'done' || step.completed === true
+            ).length;
+            const totalCount = steps.length;
+
+            // Update progress circle
+            const circumference = 2 * Math.PI * 50; // r = 50
+            const progress = totalCount > 0 ? (completedCount / totalCount) : 0;
+            const offset = circumference * (1 - progress);
+            document.getElementById('progress-bar').style.strokeDashoffset = offset;
+
+            // Update progress text
+            document.getElementById('progress-text').textContent = `${completedCount}/${totalCount}`;
+
+            // Find next task index
+            const nextTaskIndex = steps.findIndex(step =>
+                step.status !== 'done' && step.completed !== true
+            );
+
+            // Render checklist items
+            const checklistContainer = document.getElementById('checklist-container');
+            checklistContainer.innerHTML = steps.map((step, index) => {
+                const isCompleted = step.status === 'done' || step.completed === true;
+                const isNext = index === nextTaskIndex;
+                const isFuture = !isCompleted && index > nextTaskIndex && nextTaskIndex !== -1;
+
+                let itemClass = 'checklist-item';
+                if (isCompleted) itemClass += ' completed';
+                if (isNext) itemClass += ' next';
+                if (isFuture) itemClass += ' future';
+
+                const checkIcon = isCompleted
+                    ? `<svg class="check-icon" viewBox="0 0 24 24">
+                 <circle class="check-circle" cx="12" cy="12" r="10"></circle>
+                 <path class="check-path" d="M9 12l2 2 4-4"></path>
+               </svg>`
+                    : `<svg class="check-icon" viewBox="0 0 24 24">
+                 <circle class="unchecked-circle" cx="12" cy="12" r="10"></circle>
+               </svg>`;
+
+                const stepTitle = step.name || step.title || 'Untitled Step';
+
+                return `
+            <div class="${itemClass}">
+                ${checkIcon}
+                <span class="item-text">${stepTitle}</span>
+            </div>
+        `;
+            }).join('');
+        }
+
+        // Start procedure polling
+        async function startProcedurePolling() {
+            // Show loading state
+            document.getElementById('loading-state').style.display = 'flex';
+            document.getElementById('empty-state').style.display = 'none';
+            document.getElementById('procedure-content').style.display = 'none';
+
+            // Get username from the API
+            try {
+                const response = await fetch('/api/get-login-name');
+                const data = await response.json();
+
+                if (data.success && data.name) {
+                    procedureUsername = data.name;
+
+                    // Start polling immediately and then every second
+                    fetchProcedure();
+                    pollInterval = setInterval(fetchProcedure, 1000);
+                } else {
+                    console.error('Failed to get username');
+                    document.getElementById('loading-state').style.display = 'none';
+                    document.getElementById('empty-state').style.display = 'flex';
+                }
+            } catch (error) {
+                console.error('Error getting username:', error);
                 document.getElementById('loading-state').style.display = 'none';
                 document.getElementById('empty-state').style.display = 'flex';
             }
-        } catch (error) {
-            console.error('Error getting username:', error);
-            document.getElementById('loading-state').style.display = 'none';
-            document.getElementById('empty-state').style.display = 'flex';
         }
-    }
 
-    // Cleanup polling on page unload
-    window.addEventListener('beforeunload', () => {
-        if (pollInterval) {
-            clearInterval(pollInterval);
-        }
-    });
-    // Load user settings
-    async function loadUserSettings() {
-        try {
-            const response = await fetch('/api/user-settings');
-            const data = await response.json();
-            
-            if (data.success && data.settings) {
-                ttsToggle.checked = data.settings.ttsEnabled !== false;
-                updateTTSStatus(ttsToggle.checked);
-            } else {
+        // Cleanup polling on page unload
+        window.addEventListener('beforeunload', () => {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+            }
+        });
+        // Load user settings
+        async function loadUserSettings() {
+            try {
+                const response = await fetch('/api/user-settings');
+                const data = await response.json();
+
+                if (data.success && data.settings) {
+                    ttsToggle.checked = data.settings.ttsEnabled !== false;
+                    updateTTSStatus(ttsToggle.checked);
+                } else {
+                    ttsToggle.checked = true;
+                    updateTTSStatus(true);
+                }
+            } catch (error) {
+                console.error('Error loading user settings:', error);
                 ttsToggle.checked = true;
                 updateTTSStatus(true);
             }
-        } catch (error) {
-            console.error('Error loading user settings:', error);
-            ttsToggle.checked = true;
-            updateTTSStatus(true);
         }
-    }
 
-    // Save user settings
-    async function saveUserSettings(settings) {
-        try {
-            const response = await fetch('/api/user-settings', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(settings),
-            });
-            const data = await response.json();
-            
-            if (!data.success) {
-                console.error('Failed to save settings:', data.error);
-            }
-        } catch (error) {
-            console.error('Error saving user settings:', error);
-        }
-    }
-
-    // Handle TTS toggle change
-    ttsToggle.addEventListener('change', async function() {
-        const enabled = this.checked;
-        updateTTSStatus(enabled);
-        await saveUserSettings({ ttsEnabled: enabled });
-    });
-
-    // Handle stop stream button click
-    const stopStreamBtn = document.getElementById('stopStreamBtn');
-    if (stopStreamBtn) {
-        stopStreamBtn.addEventListener('click', async function() {
+        // Save user settings
+        async function saveUserSettings(settings) {
             try {
-                // Call the stop-stream API to set user state to IDLE
-                const response = await fetch('/api/stop-stream', {
+                const response = await fetch('/api/user-settings', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
+                    body: JSON.stringify(settings),
                 });
-                
                 const data = await response.json();
-                
-                if (data.success) {
-                    // Navigate back to mainwebview
-                    window.location.href = '/webview';
-                } else {
-                    console.error('Failed to stop stream:', data.error);
-                    alert('Failed to stop stream: ' + data.error);
+
+                if (!data.success) {
+                    console.error('Failed to save settings:', data.error);
                 }
             } catch (error) {
-                console.error('Error stopping stream:', error);
-                alert('Error stopping stream. Please try again.');
+                console.error('Error saving user settings:', error);
             }
+        }
+
+        // Handle TTS toggle change
+        ttsToggle.addEventListener('change', async function () {
+            const enabled = this.checked;
+            updateTTSStatus(enabled);
+            await saveUserSettings({ ttsEnabled: enabled });
         });
-    }
 
-    // Method called when user enters task view
-    function onTaskViewEnter() {
-        console.log('User entered task view');
-        console.log('Current procedure: <%= procedure %>');
-        
-        // Start polling for procedure data
-        startProcedurePolling();
-    }
+        // Handle stop stream button click
+        const stopStreamBtn = document.getElementById('stopStreamBtn');
+        if (stopStreamBtn) {
+            stopStreamBtn.addEventListener('click', async function () {
+                try {
+                    // Call the stop-stream API to set user state to IDLE
+                    const response = await fetch('/api/stop-stream', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    });
 
-    // Load username and settings when page loads
-    <% if (userId) { %>
-        fetchUsername();
-        loadUserSettings();
-        onTaskViewEnter();
-    <% } %>
-</script>
+                    const data = await response.json();
+
+                    if (data.success) {
+                        // Navigate back to mainwebview
+                        window.location.href = '/webview';
+                    } else {
+                        console.error('Failed to stop stream:', data.error);
+                        alert('Failed to stop stream: ' + data.error);
+                    }
+                } catch (error) {
+                    console.error('Error stopping stream:', error);
+                    alert('Error stopping stream. Please try again.');
+                }
+            });
+        }
+
+        // Method called when user enters task view
+        function onTaskViewEnter() {
+            console.log('User entered task view');
+            console.log('Current procedure: <%= procedure %>');
+
+            // Start polling for procedure data
+            startProcedurePolling();
+        }
+
+        // Load username and settings when page loads
+        const hasUser = "<%= userId ? 'true' : '' %>" === 'true';
+        if (hasUser) {
+            fetchUsername();
+            loadUserSettings();
+            onTaskViewEnter();
+        }
+    </script>
 </body>
+
 </html>

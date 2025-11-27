@@ -135,6 +135,7 @@ def session_to_dict(session: UserSession) -> Dict:
                 {
                     "id": s.id,
                     "name": s.name,
+                    "status": "done" if session.state == UserState.COMPLETED else ("done" if i < session.current_index else ("in_progress" if i == session.current_index else "todo")),
                     "positives": s.positives,
                     "negatives": s.negatives,
                     "timeout_s": s.timeout_s,
@@ -150,7 +151,7 @@ def session_to_dict(session: UserSession) -> Dict:
                             "params": r.params
                         } for r in s.rules
                     ]
-                } for s in session.procedure.steps
+                } for i, s in enumerate(session.procedure.steps)
             ]
         }
         

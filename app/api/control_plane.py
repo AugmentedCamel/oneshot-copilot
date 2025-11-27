@@ -57,3 +57,27 @@ async def get_debug_status():
             "error": str(e),
             "traceback": traceback.format_exc()
         }
+
+@router.get("/status")
+async def get_camera_status(camera_id: str):
+    """
+    Get the current status for a camera (user).
+    This is polled by clients to update UI.
+    
+    Args:
+        camera_id: The ID of the camera (username)
+    """
+    from app.services.status_service import get_active_status
+    
+    status = get_active_status(camera_id)
+    
+    if not status:
+        # Return a default IDLE status if no active procedure found
+        return {
+            "username": camera_id,
+            "state": "IDLE",
+            "procedure": None,
+            "step": None
+        }
+        
+    return status

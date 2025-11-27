@@ -168,3 +168,43 @@ def delete_all_user_status(username: str) -> int:
     except Exception as e:
         logger.error(f"Failed to delete user status files - username={username}, error: {str(e)}", exc_info=True)
         return 0
+
+
+def get_active_status(username: str) -> Optional[Dict]:
+    """
+    Get the active status for a user.
+    Finds the most recently modified status file for the user.
+    
+    Args:
+        username: Username (or camera_id)
+        
+    Returns:
+        Status dictionary or None if no active status found
+    """
+    try:
+        ensure_status_directory()
+        
+        # Sanitize username
+        safe_username = "".join(c for c in username if c.isalnum() or c in ('-', '_'))
+        
+        # Find all files matching the username pattern
+        pattern = f"{safe_username}_*.json"
+        matching_files = list(STATUS_DIR.glob(pattern))
+        
+        if not matching_files:
+            return None
+            
+        # Sort by modification time, newest first
+        matching_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        
+        # Load the newest file
+        latest_file = matching_files[0]
+        
+        with open(latest_file, 'r', encoding='utf-8') as f:
+            status_data = json.load(f)
+            
+        return status_data
+        
+    except Exception as e:
+        logger.error(f"Failed to get active status - username={username}, error: {str(e)}", exc_info=True)
+        return None
