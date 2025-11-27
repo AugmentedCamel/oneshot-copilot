@@ -5,16 +5,14 @@ import threading
 import asyncio
 from typing import Optional
 from app.services.ingest_service import ingest_service
+from app.core.quality_control import FrameQualityAnalyzer, RateLimiter
 
 logger = logging.getLogger(__name__)
 
 class RtspStreamReader:
     """
     Reads frames from an RTSP stream and pushes them to the IngestService.
-    Replaces the legacy StreamQualityFilter.
-    
-    TODO: Quality filtering (blur/brightness) is NOT included in this reader.
-    It should be implemented as a Job Step in the new architecture.
+    Includes rate limiting (10 FPS) and quality filtering (blur/brightness).
     """
 
     def __init__(self, source_id: str, rtsp_url: str):
@@ -23,6 +21,10 @@ class RtspStreamReader:
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        
+        # Quality Control
+        self.rate_limiter = RateLimiter(fps=10.0)
+        
         # Capture the main event loop where the app is running
         try:
             self._main_loop = asyncio.get_running_loop()
@@ -75,13 +77,33 @@ class RtspStreamReader:
 
             logger.info(f"Connected to RTSP stream: {self.rtsp_url}")
             
+            # Set buffer size to minimal to avoid reading old frames
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            
             while self.running and not self._stop_event.is_set():
+                # Rate Limiting: Check if we should process this frame slot
+                if not self.rate_limiter.should_process():
+                    # Sleep a tiny bit to avoid busy loop, but not too long
+                    time.sleep(0.01)
+                    # We still need to grab/read to clear buffer if we want latest?
+                    # Actually, for RTSP, if we don't read, buffer fills.
+                    # Best practice for low latency: always read, but only process if rate limit allows.
+                    cap.grab() 
+                    continue
+
                 ret, frame = cap.read()
                 
                 if not ret:
                     logger.warning("Failed to read frame from stream, reconnecting...")
                     break
                 
+                # Quality Check
+                is_good, reason = FrameQualityAnalyzer.is_frame_good(frame)
+                if not is_good:
+                    # Log occasionally or debug to avoid spam
+                    # logger.debug(f"Frame skipped: {reason}")
+                    continue
+
                 # Encode frame to JPEG
                 try:
                     _, buffer = cv2.imencode('.jpg', frame)
@@ -101,9 +123,6 @@ class RtspStreamReader:
                 except Exception as e:
                     logger.error(f"Error processing frame: {e}")
                 
-                # Simple rate limiting if needed, or rely on stream FPS
-                # time.sleep(0.01) 
-
             cap.release()
             logger.info("Stream disconnected")
             
