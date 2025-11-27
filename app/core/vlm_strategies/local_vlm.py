@@ -255,7 +255,7 @@ class LocalVLMStrategy(VLMStrategy):
                     "result": result,
                     "final": final_str,
                     "decision": final_str,  # Alias for compatibility
-                    "bounding_boxes": response_json.get("bounding_boxes", []),
+                    "bounding_boxes": response_json.get("bounding_results", []),
                     "metadata": {
                         "negative_results": negative_results,
                         "server_processing_time_ms": server_proc_ms
