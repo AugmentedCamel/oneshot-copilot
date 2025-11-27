@@ -225,27 +225,15 @@ class ProcedureService:
             logger.debug(f"Received VLM response for {session.username}")
             
             # 4. Parse Decision
-            data = response_json.get("data") or {}
-            result = data.get("result")
-            final = data.get("final")
+            # Expect standardized envelope: {"data": {"final": "YES", ...}, "raw": ...}
+            data = response_json.get("data", {})
+            decision_str = data.get("final") or data.get("decision")
             
-            if not result and not final:
-                # Fallback
-                response = response_json.get("response", {})
-                raw_json = response.get("raw_json", {})
-                result = raw_json.get("result")
-                final = raw_json.get("final")
-                
-            decision_str = final if final is not None else result
+            # Fallback for legacy/migration safety (check top-level)
+            if not decision_str:
+                decision_str = response_json.get("final") or response_json.get("result")
             
-            if decision_str is None:
-                decision = Decision.NO
-            elif str(decision_str).lower() == "yes":
-                decision = Decision.YES
-            elif str(decision_str).lower() == "no":
-                decision = Decision.NO
-            else:
-                decision = Decision.NO
+            decision = Decision.parse(decision_str)
                 
             logger.info(f"VLM Decision for {session.username}: {decision.value}")
             
@@ -277,6 +265,7 @@ class ProcedureService:
             
             # 7. Save State
             save_user_status(session.username, self._session_to_dict(session))
+            logger.info(f"Saved user status for {session.username} after VLM dispatch")
             
         except Exception as e:
             logger.error(f"Error handling VLM dispatch for {session.username}: {e}", exc_info=True)

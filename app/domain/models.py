@@ -19,6 +19,32 @@ class Decision(str, Enum):
     UNCERTAIN = "UNCERTAIN"
     NOT_APPLICABLE = "NOT_APPLICABLE"
 
+    @staticmethod
+    def parse(value: Any) -> Decision:
+        """
+        Robustly parse a decision string from VLM output.
+        Handles variations like "[yes]", "yes.", "YES", etc.
+        """
+        if value is None:
+            return Decision.NO
+            
+        s = str(value).strip().lower()
+        
+        # Remove common punctuation/brackets
+        import re
+        s = re.sub(r'[\[\]\.\(\)\s]', '', s)
+        
+        if s == "yes":
+            return Decision.YES
+        elif s == "no":
+            return Decision.NO
+        elif s == "uncertain":
+            return Decision.UNCERTAIN
+        elif s == "not_applicable" or s == "na":
+            return Decision.NOT_APPLICABLE
+            
+        return Decision.NO
+
 
 @dataclass
 class StepDef:

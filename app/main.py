@@ -46,7 +46,12 @@ def setup_logging():
         handler.addFilter(OnlyVLMResponseFilter())
         vlm_logger.handlers.clear()
         vlm_logger.addHandler(handler)
+        vlm_logger.addHandler(handler)
         vlm_logger.propagate = False
+
+        # Explicitly enable INFO logging for procedure engine debugging
+        proc_logger = logging.getLogger("app.domain.procedure_engine")
+        proc_logger.setLevel(logging.INFO)
 
 # Initialize logging
 setup_logging()

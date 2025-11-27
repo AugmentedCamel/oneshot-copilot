@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 _write_lock = Lock()
 
 # Base directory for user status files
-STATUS_DIR = Path("app/data/user_status")
+# Use absolute path relative to this file to ensure it works regardless of CWD
+STATUS_DIR = Path(__file__).parent.parent / "data" / "user_status"
 
 
 def ensure_status_directory() -> None:

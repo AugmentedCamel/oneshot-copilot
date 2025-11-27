@@ -193,13 +193,17 @@ class ProcedureEngine:
                     ))
 
         # Decision Logic
+        logger.info(f"[STEP_DEBUG] Processing decision: {decision} for user {session.username}")
         if decision == Decision.YES:
             session.step_rt.yes_consecutive += 1
+            logger.info(f"[STEP_DEBUG] YES count: {session.step_rt.yes_consecutive}/{step.debounce_consecutive_yes}")
+            
             if session.step_rt.yes_consecutive >= step.debounce_consecutive_yes:
                 # Check rules
                 rules_block = False
                 if session.step_rt.rule_runtime and session.step_rt.rule_runtime.has_blocking_failures():
                     rules_block = True
+                    logger.info(f"[STEP_DEBUG] Progression blocked by rules")
                 
                 if not rules_block:
                     # Progress

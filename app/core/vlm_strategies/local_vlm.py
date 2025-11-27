@@ -249,7 +249,22 @@ class LocalVLMStrategy(VLMStrategy):
                     status_code=response.status_code
                 )
             
-            return response_json, http_post_ms, server_proc_ms
+            # Construct standardized response envelope
+            envelope = {
+                "data": {
+                    "result": result,
+                    "final": final_str,
+                    "decision": final_str,  # Alias for compatibility
+                    "bounding_boxes": response_json.get("bounding_boxes", []),
+                    "metadata": {
+                        "negative_results": negative_results,
+                        "server_processing_time_ms": server_proc_ms
+                    }
+                },
+                "raw": response_json
+            }
+            
+            return envelope, http_post_ms, server_proc_ms
         except httpx.HTTPStatusError as e:
             logger.error(f"[LOCAL_VLM] HTTP error - status={e.response.status_code}, message={str(e)}")
             raise

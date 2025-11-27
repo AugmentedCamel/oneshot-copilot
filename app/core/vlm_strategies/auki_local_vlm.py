@@ -329,19 +329,6 @@ class AukiLocalVLMStrategy(VLMStrategy):
             # Log the decision
             logger.info(f"[AUKI_LOCAL_VLM] Final decision: {final_str} (positive={positive_is_yes}, any_negative_yes={any_negative_yes})")
             # === END NEGATIVE QUESTION DECISION LOGIC ===
-            
-            # Server processing time not directly available from WebSocket streaming
-            # The total_time_ms includes connection, sending, and receiving time
-            server_proc_ms = None
-            
-            logger.debug(f"[AUKI_LOCAL] *** RETURNING FROM QUERY - connection still in globals, should be reused next time ***")
-            return response_json, total_time_ms, server_proc_ms
-                
-        except websockets.exceptions.WebSocketException as e:
-            logger.error(f"[AUKI_LOCAL] WebSocket error - error={str(e)}")
-            raise
-        except asyncio.TimeoutError as e:
-            logger.error(f"[AUKI_LOCAL] WebSocket timeout - error={str(e)}")
             raise
         except ConnectionError as e:
             logger.error(f"[AUKI_LOCAL] Connection error - error={str(e)}")

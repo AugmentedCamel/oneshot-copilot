@@ -214,27 +214,6 @@ async def vlm_callback(request: Request) -> Dict:
         
         if not result and not neg_result and not final:
             # Fallback to response structure
-            response = payload.get("response", {})
-            raw_json = response.get("raw_json", {})
-            result = raw_json.get("result")
-            final = raw_json.get("final")
-            
-        decision_str = final if final is not None else result
-        
-        if decision_str is None:
-            decision = Decision.NO
-        elif decision_str.lower() == "yes":
-            decision = Decision.YES
-        elif decision_str.lower() == "no":
-            decision = Decision.NO
-        else:
-            decision = Decision.NO # Default fallback
-            
-        logger.info(f"[VLM_CALLBACK] Processing decision - username={username}, frame_id={frame_id}, decision={decision.value}")
-        
-        # Load and reconstruct session
-        # Note: We need procedure_id to load the correct file
-        if not procedure_id:
             # Try to find any active procedure for this user?
             # For now, require procedure_id or fail if we can't load
             # But wait, if we don't have procedure_id, we can't load the file with the current naming scheme

@@ -128,7 +128,21 @@ class MoondreamVLMStrategy(VLMStrategy):
                 except (ValueError, TypeError):
                     pass
             
-            return {"decision": decision}, http_post_ms, server_proc_ms
+            # Construct standardized response envelope
+            envelope = {
+                "data": {
+                    "result": answer_text,
+                    "final": decision,
+                    "decision": decision,
+                    "bounding_boxes": [],  # Not supported by Moondream
+                    "metadata": {
+                        "server_processing_time_ms": server_proc_ms
+                    }
+                },
+                "raw": response_json
+            }
+            
+            return envelope, http_post_ms, server_proc_ms
             
         except httpx.HTTPStatusError as e:
             logger.error(
