@@ -115,3 +115,4 @@ class UserSession:
     vlm_dispatch_time: Optional[float] = None  # When frame was dispatched to VLM (perf_counter)
     vlm_response_time: Optional[float] = None  # When VLM response was received (perf_counter)
     last_feedback_sent_ms: Optional[int] = None  # Track last feedback time
+    external_session_id: Optional[str] = None  # ID of the session in the external Memory Service

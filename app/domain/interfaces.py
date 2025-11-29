@@ -26,3 +26,24 @@ class FeedbackAdapter(ABC):
     @abstractmethod
     async def send(self, message: Dict[str, Any]) -> None:
         pass
+
+class ProcedureStrategy(ABC):
+    @abstractmethod
+    def load_procedure(self, procedure_id: str) -> Any:
+        """Load procedure definition."""
+        pass
+
+    @abstractmethod
+    def initialize_session(self, username: str, procedure_id: str, source_id: str) -> str:
+        """Initialize session and return session ID."""
+        pass
+
+    @abstractmethod
+    def log_event(self, session_id: str, event: Any) -> None:
+        """Log event to session."""
+        pass
+
+    @abstractmethod
+    def close_session(self, session_id: str) -> None:
+        """Close the session."""
+        pass

@@ -19,7 +19,7 @@ The V2 system moves away from a monolithic state machine to a **3-Layer Architec
     *   Subscribes to and publishes events.
     *   **Key Components**: `ProcedureService`, `IngestService`, `StatusService`.
 
-3.  **Domain Layer** (`app/domain`):
+3.  **Domain Layer** (`app/domain`):e
     *   **Pure Business Logic**. No I/O, no API calls, no side effects.
     *   Receives state + input -> Returns events.
     *   **Key Component**: `ProcedureEngine`.
@@ -76,6 +76,17 @@ All V2 endpoints are prefixed with `/api/v2`.
   "username": "john_doe",
   "procedure_id": "pizza_custom@v1",
   "source_id": "camera_01",
+  "policy": "replace"
+}
+```
+
+### Start Procedure (Memory Strategy Example)
+`POST /api/v2/procedures/start`
+```json
+{
+  "username": "mikam",
+  "procedure_id": "pizza_custom@v1",
+  "source_id": "stream_user",
   "policy": "replace"
 }
 ```

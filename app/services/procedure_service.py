@@ -7,7 +7,6 @@ from app.domain.models import UserSession, ProcedureDef, UserState, Decision
 from app.domain.procedure_engine import ProcedureEngine
 from app.domain.events import ProcedureCompleted, VLMDispatchNeeded
 from app.domain.entities import Event, EventType, Frame
-from app.models.procedure import load_procedure
 from app.services.ingest_service import ingest_service
 from app.services.status_service import save_user_status, load_user_status, delete_user_status
 from app.core.event_bus import event_bus
@@ -16,6 +15,8 @@ from app.core.vlm_client import post_to_vlm_multipart
 from app.config import settings
 from app.services.rule_validation import RuleValidationService
 from app.services.context_analysis import ContextAnalysisService
+from app.services.procedure_strategy import LocalFileProcedureStrategy, MemoryBasedProcedureStrategy
+from app.services.memory_service_client import MemoryServiceClient
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,15 @@ class ProcedureService:
         self.engine = ProcedureEngine()
         self.rule_validator = RuleValidationService()
         self.context_analyzer = ContextAnalysisService()
+        
+        # Initialize Strategy
+        if settings.PROCEDURE_STRATEGY == "memory":
+            logger.info(f"Using MemoryBasedProcedureStrategy with URL: {settings.MEMORY_SERVICE_URL}")
+            memory_client = MemoryServiceClient(settings.MEMORY_SERVICE_URL)
+            self.strategy = MemoryBasedProcedureStrategy(memory_client)
+        else:
+            logger.info("Using LocalFileProcedureStrategy")
+            self.strategy = LocalFileProcedureStrategy()
         
         # Subscribe to frame events
         event_bus.subscribe(EventType.FRAME_CREATED, self._on_frame_created)
@@ -52,10 +62,6 @@ class ProcedureService:
         if not source_id:
             source_id = self._user_sources.get(username)
             if not source_id:
-                # Try to find a default source from ingest service? 
-                # For now, require source_id if not already mapped
-                # Or maybe we can just pick the first one?
-                # Let's fail if ambiguous
                 raise ValueError("Source ID is required for new session if not already established.")
         
         # Validate source exists
@@ -66,15 +72,9 @@ class ProcedureService:
         # Update user source mapping
         self._user_sources[username] = source_id
         
-        # 2. Resolve Procedure Path & Load
-        # Assuming procedure_id maps to a file in app/data/procedures
-        # e.g. "pizza_custom@v1" -> "pizza_custom.json" (simplified mapping)
-        # For now, we'll strip version for filename or just use the ID as filename base
-        filename = f"{procedure_id.split('@')[0]}.json"
+        # 2. Resolve Procedure Path & Load via Strategy
         try:
-            procedure_def = load_procedure(f"app/data/procedures/{filename}")
-        except FileNotFoundError:
-            raise ValueError(f"Procedure not found: {procedure_id}")
+            procedure_def = self.strategy.load_procedure(procedure_id)
         except Exception as e:
             logger.error(f"Failed to load procedure {procedure_id}: {e}")
             raise ValueError(f"Invalid procedure definition: {e}")
@@ -112,6 +112,10 @@ class ProcedureService:
                     save_user_status(username, self._session_to_dict(session)) # Save aborted state
                     logger.info(f"Stopped procedure {procedure_id} for user {username}")
                     
+                    # Close external session if applicable
+                    if session.external_session_id:
+                        self.strategy.close_session(session.external_session_id)
+                    
                     # Check queue
                     self._check_queue(username)
                     return True
@@ -120,6 +124,18 @@ class ProcedureService:
     def _start_session(self, username: str, procedure_def: ProcedureDef, source_id: str) -> Dict:
         session = UserSession(username=username)
         
+        # Initialize external session via strategy
+        try:
+            external_session_id = self.strategy.initialize_session(username, procedure_def.id, source_id)
+            session.external_session_id = external_session_id
+            logger.info(f"Initialized external session {external_session_id} for user {username}")
+        except Exception as e:
+            logger.error(f"Failed to initialize external session: {e}")
+            # Continue without external session or fail? 
+            # For now, log and continue, but maybe we should fail if strategy is memory?
+            if settings.PROCEDURE_STRATEGY == "memory":
+                logger.warning("Continuing without external session ID despite memory strategy.")
+
         # Start engine
         import time
         now_ms = int(time.time() * 1000)
@@ -129,14 +145,26 @@ class ProcedureService:
         self._active_sessions[username].append(session)
         save_user_status(username, self._session_to_dict(session))
         
+        # Log initial events
+        if session.external_session_id:
+            for e in events:
+                 self.strategy.log_event(session.external_session_id, e)
+        
         logger.info(f"Started procedure {procedure_def.id} for user {username} on source {source_id}")
-        return {"status": "started", "procedure_id": procedure_def.id, "session_id": f"{username}_{procedure_def.id}"}
+        return {
+            "status": "started", 
+            "procedure_id": procedure_def.id, 
+            "session_id": f"{username}_{procedure_def.id}",
+            "external_session_id": session.external_session_id
+        }
 
     def _abort_all_sessions(self, username: str):
         """Abort all active sessions for a user."""
         if username in self._active_sessions:
             for session in self._active_sessions[username]:
                 self.engine.abort(session)
+                if session.external_session_id:
+                    self.strategy.close_session(session.external_session_id)
                 # We could save the aborted state if needed
             self._active_sessions[username] = []
             logger.info(f"Aborted all sessions for user {username}")
@@ -177,11 +205,19 @@ class ProcedureService:
                     
                     # Process events
                     for e in events:
+                        # Log event to strategy
+                        if session.external_session_id:
+                            self.strategy.log_event(session.external_session_id, e)
+
                         if isinstance(e, ProcedureCompleted):
                             logger.info(f"Procedure {e.procedure_id} completed for user {username}")
                             if session in self._active_sessions[username]:
                                 self._active_sessions[username].remove(session)
                             
+                            # Close external session
+                            if session.external_session_id:
+                                self.strategy.close_session(session.external_session_id)
+
                             # Check queue
                             self._check_queue(username)
                         
@@ -253,10 +289,19 @@ class ProcedureService:
             
             # 6. Process Resulting Events
             for e in events:
+                # Log event to strategy
+                if session.external_session_id:
+                    self.strategy.log_event(session.external_session_id, e)
+
                 if isinstance(e, ProcedureCompleted):
                     logger.info(f"Procedure {e.procedure_id} completed for user {session.username}")
                     if session in self._active_sessions.get(session.username, []):
                         self._active_sessions[session.username].remove(session)
+                    
+                    # Close external session
+                    if session.external_session_id:
+                        self.strategy.close_session(session.external_session_id)
+
                     self._check_queue(session.username)
                 elif isinstance(e, VLMDispatchNeeded):
                     # Handle chained dispatch (e.g. from buffered frame)
