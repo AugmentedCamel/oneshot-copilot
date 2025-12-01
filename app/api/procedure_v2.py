@@ -18,7 +18,7 @@ class StopProcedureRequest(BaseModel):
 @router.post("/procedures/start")
 async def start_procedure(request: StartProcedureRequest):
     try:
-        result = procedure_service.start_procedure(
+        result = await procedure_service.start_procedure(
             username=request.username,
             procedure_id=request.procedure_id,
             source_id=request.source_id,
@@ -33,7 +33,7 @@ async def start_procedure(request: StartProcedureRequest):
 @router.post("/procedures/stop")
 async def stop_procedure(request: StopProcedureRequest):
     try:
-        stopped = procedure_service.stop_procedure(
+        stopped = await procedure_service.stop_procedure(
             username=request.username,
             procedure_id=request.procedure_id
         )

@@ -43,7 +43,7 @@ class ProcedureService:
         # Subscribe to frame events
         event_bus.subscribe(EventType.FRAME_CREATED, self._on_frame_created)
 
-    def start_procedure(self, username: str, procedure_id: str, source_id: Optional[str] = None, policy: str = "replace") -> Dict:
+    async def start_procedure(self, username: str, procedure_id: str, source_id: Optional[str] = None, policy: str = "replace") -> Dict:
         """
         Start a procedure for a user.
         
@@ -74,7 +74,7 @@ class ProcedureService:
         
         # 2. Resolve Procedure Path & Load via Strategy
         try:
-            procedure_def = self.strategy.load_procedure(procedure_id)
+            procedure_def = await self.strategy.load_procedure(procedure_id)
         except Exception as e:
             logger.error(f"Failed to load procedure {procedure_id}: {e}")
             raise ValueError(f"Invalid procedure definition: {e}")
@@ -84,7 +84,7 @@ class ProcedureService:
             self._active_sessions[username] = []
             
         if policy == "replace":
-            self._abort_all_sessions(username)
+            await self._abort_all_sessions(username)
         elif policy == "queue":
             # If there are active sessions, queue this one
             if self._active_sessions[username]:
@@ -100,9 +100,9 @@ class ProcedureService:
             raise ValueError(f"Unknown policy: {policy}")
 
         # 4. Start Session
-        return self._start_session(username, procedure_def, source_id)
+        return await self._start_session(username, procedure_def, source_id)
 
-    def stop_procedure(self, username: str, procedure_id: str) -> bool:
+    async def stop_procedure(self, username: str, procedure_id: str) -> bool:
         """Stop a specific procedure."""
         if username in self._active_sessions:
             for session in self._active_sessions[username]:
@@ -114,19 +114,19 @@ class ProcedureService:
                     
                     # Close external session if applicable
                     if session.external_session_id:
-                        self.strategy.close_session(session.external_session_id)
+                        await self.strategy.close_session(session.external_session_id)
                     
                     # Check queue
-                    self._check_queue(username)
+                    await self._check_queue(username)
                     return True
         return False
 
-    def _start_session(self, username: str, procedure_def: ProcedureDef, source_id: str) -> Dict:
+    async def _start_session(self, username: str, procedure_def: ProcedureDef, source_id: str) -> Dict:
         session = UserSession(username=username)
         
         # Initialize external session via strategy
         try:
-            external_session_id = self.strategy.initialize_session(username, procedure_def.id, source_id)
+            external_session_id = await self.strategy.initialize_session(username, procedure_def.id, source_id)
             session.external_session_id = external_session_id
             logger.info(f"Initialized external session {external_session_id} for user {username}")
         except Exception as e:
@@ -148,7 +148,7 @@ class ProcedureService:
         # Log initial events
         if session.external_session_id:
             for e in events:
-                 self.strategy.log_event(session.external_session_id, e)
+                 await self.strategy.log_event(session.external_session_id, e)
         
         logger.info(f"Started procedure {procedure_def.id} for user {username} on source {source_id}")
         return {
@@ -158,18 +158,18 @@ class ProcedureService:
             "external_session_id": session.external_session_id
         }
 
-    def _abort_all_sessions(self, username: str):
+    async def _abort_all_sessions(self, username: str):
         """Abort all active sessions for a user."""
         if username in self._active_sessions:
             for session in self._active_sessions[username]:
                 self.engine.abort(session)
                 if session.external_session_id:
-                    self.strategy.close_session(session.external_session_id)
+                    await self.strategy.close_session(session.external_session_id)
                 # We could save the aborted state if needed
             self._active_sessions[username] = []
             logger.info(f"Aborted all sessions for user {username}")
 
-    def _check_queue(self, username: str):
+    async def _check_queue(self, username: str):
         """Check if we can promote a queued session."""
         if username in self._queued_sessions and self._queued_sessions[username]:
             # Simple logic: if no active sessions, pop from queue
@@ -180,7 +180,7 @@ class ProcedureService:
             if not self._active_sessions.get(username):
                 next_proc_id, next_source_id = self._queued_sessions[username].popleft()
                 logger.info(f"Promoting queued procedure {next_proc_id} for user {username}")
-                self.start_procedure(username, next_proc_id, next_source_id, policy="parallel") # Policy doesn't matter here as it's empty
+                await self.start_procedure(username, next_proc_id, next_source_id, policy="parallel") # Policy doesn't matter here as it's empty
 
     async def _on_frame_created(self, event: Event):
         """Handle new frame ingestion."""
@@ -207,7 +207,7 @@ class ProcedureService:
                     for e in events:
                         # Log event to strategy
                         if session.external_session_id:
-                            self.strategy.log_event(session.external_session_id, e)
+                            await self.strategy.log_event(session.external_session_id, e)
 
                         if isinstance(e, ProcedureCompleted):
                             logger.info(f"Procedure {e.procedure_id} completed for user {username}")
@@ -216,10 +216,10 @@ class ProcedureService:
                             
                             # Close external session
                             if session.external_session_id:
-                                self.strategy.close_session(session.external_session_id)
+                                await self.strategy.close_session(session.external_session_id)
 
                             # Check queue
-                            self._check_queue(username)
+                            await self._check_queue(username)
                         
                         elif isinstance(e, VLMDispatchNeeded):
                             logger.info(f"Dispatching VLM for user {username}, frame {e.frame_id}")
@@ -291,7 +291,7 @@ class ProcedureService:
             for e in events:
                 # Log event to strategy
                 if session.external_session_id:
-                    self.strategy.log_event(session.external_session_id, e)
+                    await self.strategy.log_event(session.external_session_id, e)
 
                 if isinstance(e, ProcedureCompleted):
                     logger.info(f"Procedure {e.procedure_id} completed for user {session.username}")
@@ -300,9 +300,9 @@ class ProcedureService:
                     
                     # Close external session
                     if session.external_session_id:
-                        self.strategy.close_session(session.external_session_id)
+                        await self.strategy.close_session(session.external_session_id)
 
-                    self._check_queue(session.username)
+                    await self._check_queue(session.username)
                 elif isinstance(e, VLMDispatchNeeded):
                     # Handle chained dispatch (e.g. from buffered frame)
                     logger.info(f"Dispatching VLM for user {session.username}, frame {e.frame_id} (buffered)")
