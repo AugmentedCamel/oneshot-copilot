@@ -1,11 +1,12 @@
 import logging
 import asyncio
+from datetime import datetime
 from typing import Dict, List, Optional
 from collections import deque
 
 from app.domain.models import UserSession, ProcedureDef, UserState, Decision
 from app.domain.procedure_engine import ProcedureEngine
-from app.domain.events import ProcedureCompleted, VLMDispatchNeeded
+from app.domain.events import ProcedureCompleted, VLMDispatchNeeded, VLMResponseReceived
 from app.domain.entities import Event, EventType, Frame
 from app.services.ingest_service import ingest_service
 from app.services.status_service import save_user_status, load_user_status, delete_user_status
@@ -120,6 +121,14 @@ class ProcedureService:
                     await self._check_queue(username)
                     return True
         return False
+
+    def get_session_by_external_id(self, external_session_id: str) -> Optional[UserSession]:
+        """Find an active session by its external session ID."""
+        for sessions in self._active_sessions.values():
+            for session in sessions:
+                if session.external_session_id == external_session_id:
+                    return session
+        return None
 
     async def _start_session(self, username: str, procedure_def: ProcedureDef, source_id: str) -> Dict:
         session = UserSession(username=username)
@@ -308,7 +317,46 @@ class ProcedureService:
                     logger.info(f"Dispatching VLM for user {session.username}, frame {e.frame_id} (buffered)")
                     asyncio.create_task(self._handle_vlm_dispatch(session, e))
             
-            # 7. Save State
+            # 7. Log VLM Response Event
+            # Extract bounding box info
+            bounding_boxes = response_json.get("data", {}).get("bounding_boxes", [])
+            # If it's a dict (legacy/local), flatten it
+            bb_items = []
+            bb_count = 0
+            if isinstance(bounding_boxes, dict):
+                for k, v in bounding_boxes.items():
+                    count = len(v) if isinstance(v, list) else 1
+                    bb_count += count
+                    bb_items.append(f"{k} ({count})")
+            elif isinstance(bounding_boxes, list):
+                bb_count = len(bounding_boxes)
+                # Try to guess items if possible, or just say "items"
+                # For now, just list count
+                bb_items.append(f"items ({bb_count})")
+            
+            bb_items_str = ", ".join(bb_items) if bb_items else "None"
+
+            # Get raw answer
+            raw_answer = response_json.get("data", {}).get("result") or response_json.get("answer", "")
+
+            # Create event
+            vlm_event = VLMResponseReceived(
+                username=session.username,
+                timestamp=datetime.utcnow().isoformat() + "Z",
+                vlm_goal=question,
+                vlm_raw_answer=raw_answer,
+                bounding_boxes_detected=bb_count,
+                bounding_box_items=bb_items_str,
+                progress_decision=decision.value,
+                procedure_id=session.procedure.id,
+                session_id=session.external_session_id or "unknown"
+            )
+            
+            # Log to strategy
+            if session.external_session_id:
+                await self.strategy.log_event(session.external_session_id, vlm_event)
+
+            # 8. Save State
             save_user_status(session.username, self._session_to_dict(session))
             logger.info(f"Saved user status for {session.username} after VLM dispatch")
             

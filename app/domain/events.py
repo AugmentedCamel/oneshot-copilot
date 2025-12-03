@@ -39,3 +39,14 @@ class FeedbackNeeded(DomainEvent):
 @dataclass
 class StatusChanged(DomainEvent):
     pass
+
+@dataclass
+class VLMResponseReceived(DomainEvent):
+    timestamp: str
+    vlm_goal: str
+    vlm_raw_answer: str
+    bounding_boxes_detected: int
+    bounding_box_items: str
+    progress_decision: str
+    procedure_id: str
+    session_id: str

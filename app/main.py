@@ -89,6 +89,11 @@ from app.api import ingest_v2
 app.include_router(ingest_v2.router, prefix="/api/v2", tags=["Debug Ingest"])
 logger.debug("Registered Debug Ingest router at /api/v2")
 
+# Agent Assist
+from app.api import agent
+app.include_router(agent.router, prefix="/api/v2/agent", tags=["Agent Assist"])
+logger.debug("Registered Agent Assist router at /api/v2/agent")
+
 logger.info("All API routers registered successfully")
 
 # Initialize new services

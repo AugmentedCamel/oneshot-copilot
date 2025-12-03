@@ -2,6 +2,7 @@ import logging
 import json
 from typing import Any, Dict
 from app.domain.interfaces import ProcedureStrategy
+from app.domain.events import VLMResponseReceived, StepProgressed, ProcedureCompleted, VLMDispatchNeeded
 from app.models.procedure import load_procedure, procedure_from_json
 from app.services.memory_service_client import MemoryServiceClient
 
@@ -55,9 +56,45 @@ class MemoryBasedProcedureStrategy(ProcedureStrategy):
         return await self.client.create_session(username, procedure_id, source_id)
 
     async def log_event(self, session_id: str, event: Any) -> None:
+        # Filter out VLMDispatchNeeded
+        if isinstance(event, VLMDispatchNeeded):
+            return
+
         # Convert event to string or dict
-        # For now, let's just log the string representation
-        content = str(event)
+        if isinstance(event, VLMResponseReceived):
+            content = (
+                f"session_id: {event.session_id}\n"
+                f"procedure_id: {event.procedure_id}\n"
+                f"timestamp: {event.timestamp}\n"
+                f"vlm_goal: {event.vlm_goal}\n"
+                f"vlm_raw_answer: {event.vlm_raw_answer}\n"
+                f"bounding boxes detected: {event.bounding_boxes_detected}\n"
+                f"bounding box item: {event.bounding_box_items}\n"
+                f"progress_decision: {event.progress_decision}"
+            )
+        elif isinstance(event, StepProgressed):
+            content = (
+                f"session_id: {session_id}\n"
+                f"procedure_id: {event.procedure_id}\n"
+                f"event: StepProgressed\n"
+                f"from_step: {event.from_step}\n"
+                f"to_step: {event.to_step}"
+            )
+        elif isinstance(event, ProcedureCompleted):
+            content = (
+                f"session_id: {session_id}\n"
+                f"procedure_id: {event.procedure_id}\n"
+                f"event: ProcedureCompleted\n"
+                f"final_step: {event.final_step}"
+            )
+        else:
+            # Default format for other events
+            content = (
+                f"session_id: {session_id}\n"
+                f"event: {type(event).__name__}\n"
+                f"{str(event)}"
+            )
+            
         await self.client.add_item_to_session(session_id, content, metadata={"type": type(event).__name__})
 
     async def close_session(self, session_id: str) -> None:
