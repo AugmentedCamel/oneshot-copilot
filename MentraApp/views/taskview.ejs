@@ -178,6 +178,7 @@
 
         // Procedure polling variables
         let procedureUsername = '';
+        let procedureId = '';
         let pollInterval = null;
 
         // Fetch procedure data from backend
@@ -222,6 +223,11 @@
 
         // Render procedure data
         function renderProcedure(data) {
+            // Store procedure ID
+            if (data.id) {
+                procedureId = data.id;
+            }
+
             // Update title
             document.getElementById('procedure-title').textContent = data.name || data.title || 'Procedure';
 
@@ -378,6 +384,10 @@
                         headers: {
                             'Content-Type': 'application/json',
                         },
+                        body: JSON.stringify({
+                            username: procedureUsername,
+                            procedure_id: procedureId
+                        }),
                     });
 
                     const data = await response.json();

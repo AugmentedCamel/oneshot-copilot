@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
     SELF_URL: str
-    MENTRA_URL: str
+    MENTRA_URL: str = "https://localhost:3000"
     
     # VLM Provider Configuration
     VLM_PROVIDER: str = "local"  # Options: "local", "moondream", "auki_local"

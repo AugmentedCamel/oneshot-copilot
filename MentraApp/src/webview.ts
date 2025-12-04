@@ -308,6 +308,163 @@ export function setupExpressRoutes(server: AppServer): void {
     }
   }) as any);
 
+  // POST endpoint for agent replies (speaks text to user)
+  app.post('/agent_reply', (async (req: express.Request, res: Response, next: NextFunction) => {
+    try {
+      const { username, text } = req.body;
+
+      if (!username || typeof username !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid username provided'
+        });
+      }
+
+      if (!text || typeof text !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid text provided'
+        });
+      }
+
+      // Get userId for the username
+      const userId = (server as any).getUserIdForUsername(username);
+      if (!userId) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found or not logged in'
+        });
+      }
+
+      // Get the AudioFeedback instance for this user
+      const audioFeedbackMap = (server as any).audioFeedbackMap;
+      const audioFeedback = audioFeedbackMap?.get(userId);
+
+      if (!audioFeedback) {
+        return res.status(404).json({
+          success: false,
+          error: 'Audio feedback not available for this user'
+        });
+      }
+
+      // Speak the text with high priority
+      audioFeedback.speak(text, require('./services/AudioFeedback').FeedbackPriority.High);
+
+      return res.json({
+        success: true,
+        message: 'Text spoken successfully'
+      });
+    } catch (error) {
+      console.error('Error in /agent_reply:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
+  }) as any);
+
+  // POST endpoint to stop stream and set user state to IDLE
+  app.post('/api/stop-stream', (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.authUserId;
+      const timestamp = new Date().toISOString();
+
+      if (!userId) {
+        console.error(`[${timestamp}] [stop-stream] No userId found in request`);
+        return res.status(401).json({
+          success: false,
+          error: 'User not authenticated'
+        });
+      }
+
+      console.log(`[${timestamp}] [stop-stream] Request from userId: ${userId}`);
+
+      // Try to get username from request body first (most reliable), then fall back to server mapping
+      let username = req.body.username;
+
+      if (!username) {
+        console.log(`[${timestamp}] [stop-stream] No username in request body, checking server mapping...`);
+        username = (server as any).getUsername(userId);
+      } else {
+        console.log(`[${timestamp}] [stop-stream] Using username from request body: ${username}`);
+      }
+
+      if (!username) {
+        console.warn(`[${timestamp}] [stop-stream] No username found for userId: ${userId}. This might indicate the session was already cleaned up or the user logged in from another device.`);
+
+        // Even if we can't find the username, we should still try to stop the stream
+        // and allow the redirect to happen
+        const session = (server as any).userSessionsMap?.get(userId);
+        if (session) {
+          try {
+            await session.camera.stopStream();
+            console.log(`[${timestamp}] [stop-stream] Stream stopped for userId: ${userId} (no username mapping)`);
+          } catch (streamError) {
+            console.error(`[${timestamp}] [stop-stream] Error stopping stream:`, streamError);
+          }
+        }
+
+        // Return success even without username to allow UI navigation
+        return res.json({
+          success: true,
+          message: 'Stream stopped (session may have expired)',
+          warning: 'Username mapping not found'
+        });
+      }
+
+      console.log(`[${timestamp}] [stop-stream] Username: ${username}`);
+
+      // Clear active procedure
+      (server as any).clearActiveProcedure(username);
+
+      // Set user state to IDLE
+      await (server as any).setUserState(username, 'IDLE');
+
+      // Call v2 API to stop the procedure on the backend
+      try {
+        const externalApiUrl = 'https://oneshotcopilot.ngrok.dev';
+        const stopResponse = await fetch(`${externalApiUrl}/stop_procedure`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ camera_id: username }),
+        });
+
+        if (!stopResponse.ok) {
+          console.error(`[${timestamp}] [stop-stream] Failed to stop procedure on external API: ${stopResponse.status}`);
+        } else {
+          console.log(`[${timestamp}] [stop-stream] Successfully stopped procedure on external API for ${username}`);
+        }
+      } catch (apiError) {
+        console.error(`[${timestamp}] [stop-stream] Error calling external stop API:`, apiError);
+      }
+
+      // Stop the camera stream
+      const session = (server as any).userSessionsMap?.get(userId);
+      if (session) {
+        try {
+          await session.camera.stopStream();
+          console.log(`[${timestamp}] [stop-stream] Stream stopped for ${username}`);
+        } catch (streamError) {
+          console.error(`[${timestamp}] [stop-stream] Error stopping stream:`, streamError);
+        }
+      }
+
+      return res.json({
+        success: true,
+        message: 'Stream stopped successfully'
+      });
+    } catch (error) {
+      const timestamp = new Date().toISOString();
+      console.error(`[${timestamp}] [stop-stream] Error:`, error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
+  }) as any);
+
   // GET endpoint to fetch procedure data from external API
   app.get('/api/procedure', (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -406,6 +563,8 @@ export function setupExpressRoutes(server: AppServer): void {
         });
       }
 
+      // RTMP camera streaming disabled - keeping only external API integration
+      /*
       // Start the camera stream
       const session = (server as any).getSession(username);
       if (session && session.camera) {
@@ -428,34 +587,6 @@ export function setupExpressRoutes(server: AppServer): void {
             //rtmpUrl: "rtmp://192.168.9.21:1935/live/oneshot"
           });
           console.log(`[${new Date().toISOString()}] Camera stream started successfully for ${username}`);
-
-          // Make POST request to backend API v2 for starting procedure
-          try {
-            const backendUrl = 'https://oneshotcopilot.ngrok.dev/api/v2/procedures/start';
-            console.log(`[${new Date().toISOString()}] Making POST request to backend API v2 for procedure "${procedure}": ${backendUrl}`);
-
-            const backendResponse = await fetch(backendUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                username: username,
-                procedure_id: procedure,
-                source_id: username,
-                policy: 'replace'
-              })
-            });
-
-            if (backendResponse.ok) {
-              console.log(`[${new Date().toISOString()}] Successfully started procedure via API v2 for ${username} - Procedure: ${procedure}`);
-            } else {
-              console.error(`[${new Date().toISOString()}] Backend API v2 returned error status: ${backendResponse.status}`);
-            }
-          } catch (backendError) {
-            // Log the error but don't fail the stream start
-            console.error(`[${new Date().toISOString()}] Error starting procedure via API v2:`, backendError);
-          }
         } catch (error) {
           console.error(`[${new Date().toISOString()}] Error starting camera stream:`, error);
           return res.status(500).json({
@@ -469,6 +600,35 @@ export function setupExpressRoutes(server: AppServer): void {
           success: false,
           error: 'Session not found. Please reconnect.'
         });
+      }
+      */
+
+      // Make POST request to backend API v2 for starting procedure
+      try {
+        const backendUrl = 'https://oneshotcopilot.ngrok.dev/api/v2/procedures/start';
+        console.log(`[${new Date().toISOString()}] Making POST request to backend API v2 for procedure "${procedure}": ${backendUrl}`);
+
+        const backendResponse = await fetch(backendUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            username: username,
+            procedure_id: procedure,
+            source_id: username,
+            policy: 'replace'
+          })
+        });
+
+        if (backendResponse.ok) {
+          console.log(`[${new Date().toISOString()}] Successfully started procedure via API v2 for ${username} - Procedure: ${procedure}`);
+        } else {
+          console.error(`[${new Date().toISOString()}] Backend API v2 returned error status: ${backendResponse.status}`);
+        }
+      } catch (backendError) {
+        // Log the error but don't fail the request
+        console.error(`[${new Date().toISOString()}] Error starting procedure via API v2:`, backendError);
       }
 
       // Set user state to WORKING
@@ -523,6 +683,41 @@ export function setupExpressRoutes(server: AppServer): void {
         });
       }
 
+      // Get the active procedure before clearing it
+      const activeProcedure = (server as any).getActiveProcedure(username);
+
+      // Call v2 API to stop the procedure on the backend
+      if (activeProcedure) {
+        try {
+          const backendUrl = 'https://oneshotcopilot.ngrok.dev/api/v2/procedures/stop';
+          console.log(`[${new Date().toISOString()}] Making POST request to backend API v2 to stop procedure "${activeProcedure}": ${backendUrl}`);
+
+          const backendResponse = await fetch(backendUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              username: username,
+              procedure_id: activeProcedure,
+              source_id: username,
+              policy: 'replace'
+            })
+          });
+
+          if (backendResponse.ok) {
+            console.log(`[${new Date().toISOString()}] Successfully stopped procedure via API v2 for ${username} - Procedure: ${activeProcedure}`);
+          } else {
+            console.error(`[${new Date().toISOString()}] Backend API v2 returned error status when stopping: ${backendResponse.status}`);
+          }
+        } catch (backendError) {
+          // Log the error but don't fail the stream stop
+          console.error(`[${new Date().toISOString()}] Error stopping procedure via API v2:`, backendError);
+        }
+      }
+
+      // RTMP camera streaming disabled
+      /*
       // Stop the camera stream
       const session = (server as any).getSession(username);
       if (session && session.camera) {
@@ -534,6 +729,7 @@ export function setupExpressRoutes(server: AppServer): void {
           // Continue with state cleanup even if stream stop fails
         }
       }
+      */
 
       // Set user state to IDLE
       (server as any).clearActiveProcedure(username);

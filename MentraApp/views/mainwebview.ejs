@@ -194,6 +194,8 @@
         // Handle start stream button click
         if (startStreamBtn) {
             startStreamBtn.addEventListener('click', async function () {
+                // RTMP logic commented out due to issues
+
                 try {
                     // Call the start-stream API to set user state to WORKING and trigger TTS
                     const response = await fetch('/api/start-stream', {
@@ -217,6 +219,10 @@
                     console.error('Error starting stream:', error);
                     alert('Error starting stream. Please try again.');
                 }
+
+
+                // Direct navigation without RTMP
+                window.location.href = `/taskview?procedure=${encodeURIComponent(selectedProcedure)}`;
             });
         }
 

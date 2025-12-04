@@ -7,6 +7,7 @@ from app.core.event_bus import event_bus
 from app.core.adapters import HttpFeedbackAdapter
 from app.config import settings
 
+
 logger = logging.getLogger(__name__)
 
 class FeedbackService:
