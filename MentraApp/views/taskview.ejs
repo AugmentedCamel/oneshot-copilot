@@ -74,6 +74,17 @@
                     <% } %>
         </div>
 
+        <!-- API Version Selector -->
+        <div class="content" style="margin-bottom: 1rem;">
+            <h3>API Version</h3>
+            <div class="api-version-selector">
+                <label>
+                    <input type="radio" name="apiVersion" value="v2" checked>
+                    v2 (Camera ID: <span id="cameraIdDisplay">loading...</span>)
+                </label>
+            </div>
+        </div>
+
         <!-- Procedure Checklist -->
         <div class="procedure-container">
             <!-- Loading State -->
@@ -281,6 +292,12 @@
 
                 if (data.success && data.name) {
                     procedureUsername = data.name;
+
+                    // Update camera ID display
+                    const cameraIdDisplay = document.getElementById('cameraIdDisplay');
+                    if (cameraIdDisplay) {
+                        cameraIdDisplay.textContent = procedureUsername;
+                    }
 
                     // Start polling immediately and then every second
                     fetchProcedure();
