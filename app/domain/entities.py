@@ -43,6 +43,7 @@ class EventType(str, Enum):
     RULE_TRIGGERED = "rule.triggered"
     FEEDBACK_SENT = "feedback.sent"
     ERROR = "error"
+    QUESTION_ASKED = "question.asked"
     # Legacy/Migration types
     STEP_STARTED = "step.started"
     STEP_PROGRESSED = "step.progressed"

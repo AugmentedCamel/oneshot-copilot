@@ -104,6 +104,7 @@ from app.services.model_runtime import model_runtime
 from app.services.rule_engine import rule_engine
 from app.services.feedback_service import feedback_service
 from app.services.procedure_service import procedure_service
+from app.services.agent_service import agent_service
 from app.core.startup import run_startup_initialization, run_shutdown_cleanup
 
 logger.info("Initialized new architecture services (EventBus, Ingest, Orchestrator, Runtime, RuleEngine, Feedback, Procedure)")

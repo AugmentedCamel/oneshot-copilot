@@ -1,21 +1,30 @@
 import logging
 import asyncio
-from typing import List
+from typing import List, Any
 from app.config import settings
 from app.domain.entities import Source
 from app.services.ingest_service import ingest_service
 from app.services.stream_reader import RtspStreamReader
+from app.services.audio_stream_reader import AudioStreamReader
+from app.services.audio_analyzer import audio_analyzer
 
 logger = logging.getLogger(__name__)
 
 # Keep track of active stream readers
-_active_stream_readers: List[RtspStreamReader] = []
+_active_stream_readers: List[Any] = []
 
 async def run_startup_initialization():
     """
     Initialize the application by registering default sources and starting background tasks.
     """
     logger.info("Running startup initialization...")
+
+    # Initialize Audio Analyzer models
+    try:
+        audio_analyzer.set_loop(asyncio.get_running_loop())
+        await audio_analyzer.initialize_models()
+    except Exception as e:
+        logger.error(f"Failed to initialize AudioAnalyzer models: {e}")
 
     # 1. Register Default RTSP Source if configured
     if settings.RTSP_STREAM_URL:
@@ -33,10 +42,17 @@ async def run_startup_initialization():
         
         ingest_service.register_source(source)
         
-        # Start stream reader for this source
+        # Start video stream reader
         reader = RtspStreamReader(source_id, settings.RTSP_STREAM_URL)
         reader.start()
         _active_stream_readers.append(reader)
+        
+        # Start audio stream reader
+        # Use a lambda to pass source_id to the analyzer
+        audio_callback = lambda chunk: audio_analyzer.process_chunk(chunk, source_id)
+        audio_reader = AudioStreamReader(source_id, settings.RTSP_STREAM_URL, audio_callback)
+        audio_reader.start()
+        _active_stream_readers.append(audio_reader)
         
     else:
         logger.info("No default RTSP stream configured.")

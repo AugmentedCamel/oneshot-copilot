@@ -1,0 +1,92 @@
+import logging
+import httpx
+from app.domain.entities import Event, EventType
+from app.core.event_bus import event_bus
+from app.services.procedure_service import procedure_service
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+class AgentService:
+    def __init__(self):
+        self.memory_service_url = settings.MEMORY_SERVICE_URL
+        event_bus.subscribe(EventType.QUESTION_ASKED, self._on_question_asked)
+        logger.info("AgentService initialized and subscribed to QUESTION_ASKED")
+
+    async def _on_question_asked(self, event: Event):
+        """Handle incoming question events from the audio pipeline."""
+        try:
+            question_text = event.payload.get("question")
+            source_id = event.source_id
+            
+            if not question_text:
+                logger.warning("Received QUESTION_ASKED event without question text")
+                return
+
+            logger.info(f"Processing question: '{question_text}' from source {source_id}")
+
+            # 1. Resolve User
+            username = None
+            # Reverse lookup in _user_sources
+            # This is O(N) but N (users) is very small
+            for user, src in procedure_service._user_sources.items():
+                if src == source_id:
+                    username = user
+                    break
+            
+            if not username:
+                # Fallback: if we can't find a user for this source, maybe use a default or just log
+                # For now, let's assume "default_user" or similar if configured, or just use source_id as user
+                # But Memory Service might expect a valid user.
+                logger.warning(f"Could not map source_id {source_id} to a username. Using source_id '{source_id}' as username.")
+                username = source_id
+
+            # 2. Resolve Session
+            session = None
+            sessions = procedure_service._active_sessions.get(username)
+            if sessions:
+                # Use the first active session
+                session = sessions[0]
+                logger.info(f"Found active session {session.external_session_id} for user {username}")
+            else:
+                logger.info(f"No active session for user {username}. Sending ambient question.")
+
+            # 3. Call Memory Service
+            if session and session.external_session_id:
+                # Enrich payload with context (similar to app/api/agent.py)
+                current_step_name = None
+                procedure_name = None
+                
+                if session.procedure:
+                    procedure_name = session.procedure.name
+                    if 0 <= session.current_index < len(session.procedure.steps):
+                        current_step_name = session.procedure.steps[session.current_index].name
+
+                payload = {
+                    "query": question_text,
+                    "username": username,
+                    "session_id": session.external_session_id,
+                    "current_step_name": current_step_name,
+                    "procedure_name": procedure_name
+                }
+                await self.call_memory_agent(payload)
+            else:
+                logger.info(f"No active session for user {username}. Ambient questions are disabled. Ignoring.")
+
+        except Exception as e:
+            logger.error(f"Error in AgentService._on_question_asked: {e}", exc_info=True)
+
+    async def call_memory_agent(self, payload: dict):
+        """Call the Memory Service /agent/assist endpoint."""
+        url = f"{self.memory_service_url}/agent/assist"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=payload, timeout=30.0)
+                response.raise_for_status()
+                data = response.json()
+                answer = data.get("answer") or data.get("result") or data
+                logger.warning(f"Agent Answer: {answer}")
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to call Memory Service: {e}")
+
+agent_service = AgentService()
