@@ -53,6 +53,12 @@ class FeedbackService:
         adapter = HttpFeedbackAdapter(url) # Create on the fly or reuse
         await adapter.send(payload)
 
+    async def send_agent_reply(self, username: str, reply: str) -> None:
+        url = f"{settings.MENTRA_URL}/agent_reply"
+        payload = {"username": username, "text": reply}
+        adapter = HttpFeedbackAdapter(url)
+        await adapter.send(payload)
+
     async def send_progress_notification(self, username: str, from_step: Optional[int], to_step: Optional[int]) -> None:
         url = f"{settings.MENTRA_URL}/progress_step"
         payload = {

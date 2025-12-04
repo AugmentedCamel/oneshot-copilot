@@ -86,6 +86,13 @@ class AgentService:
                 data = response.json()
                 answer = data.get("answer") or data.get("result") or data
                 logger.warning(f"Agent Answer: {answer}")
+                
+                # Send answer back to client via FeedbackService
+                username = payload.get("username")
+                if username and isinstance(answer, str):
+                    from app.services.feedback_service import feedback_service
+                    await feedback_service.send_agent_reply(username, answer)
+                    
         except httpx.HTTPError as e:
             logger.error(f"Failed to call Memory Service: {e}")
 
