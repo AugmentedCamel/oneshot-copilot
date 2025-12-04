@@ -243,7 +243,33 @@ class ProcedureEngine:
                         session.inflight_frame_id = None
                         events.append(StatusChanged(username=session.username))
         else:
-            session.step_rt.yes_consecutive = 0
+            # Decision is NOT YES (NO, UNCERTAIN, etc.)
+            
+            # Check for "Penalize" condition:
+            # Positive Question = YES AND Negative Question = YES
+            # In this case, we decrement consecutive yes by 1 instead of resetting.
+            
+            is_penalize_case = False
+            if vlm_response and "data" in vlm_response:
+                data = vlm_response["data"]
+                # Check positive result (usually "result")
+                pos_res = data.get("result")
+                # Check negative result (usually "negative_result")
+                neg_res = data.get("negative_result")
+                
+                if pos_res and neg_res:
+                    # Parse both to be sure
+                    p_dec = Decision.parse(pos_res)
+                    n_dec = Decision.parse(neg_res)
+                    if p_dec == Decision.YES and n_dec == Decision.YES:
+                        is_penalize_case = True
+            
+            if is_penalize_case:
+                session.step_rt.yes_consecutive = max(0, session.step_rt.yes_consecutive - 1)
+                logger.info(f"[STEP_DEBUG] Penalize case (Pos=YES, Neg=YES): Decremented yes count to {session.step_rt.yes_consecutive}")
+            else:
+                session.step_rt.yes_consecutive = 0
+                logger.info(f"[STEP_DEBUG] Decision {decision}: Reset yes count to 0")
 
         # Process buffered frame
         if session.buffered_frame:
