@@ -1,0 +1,31 @@
+{
+  "id": "debug_example@v1",
+  "name": "Debug Example Procedure",
+  "version": 1,
+  "steps": [
+    {
+      "id": 1,
+      "name": "Test Step with Debug Enabled",
+      "positives": ["Is there a person in the image?"],
+      "negatives": ["Is the person wearing a hat?"],
+      "bounding_questions": [],
+      "timeout_s": 30,
+      "debounce": {
+        "consecutive_yes": 2
+      },
+      "debug": true
+    },
+    {
+      "id": 2,
+      "name": "Test Step without Debug",
+      "positives": ["Is there a car in the image?"],
+      "negatives": [],
+      "bounding_questions": [],
+      "timeout_s": 30,
+      "debounce": {
+        "consecutive_yes": 2
+      },
+      "debug": false
+    }
+  ]
+}
