@@ -7,6 +7,8 @@ This repository includes a Mentra Smart Glasses client application.
 
 Oneshot Copilot guides users through multi-step procedures by analyzing video frames in real-time. It uses a VLM (Vision Language Model) service to verify each step's completion before allowing progression to the next step.
 
+> [!IMPORTANT]
+> **Major Refactor Complete!** Oneshot Copilot has been significantly refactored to be more modular. The system now supports multiple procedure sources and VLM providers. One new configuration uses an external **Memory Service** (private repository) for storing and retrieving procedure instructions. This is just **one optional procedure configuration** — you can still use local JSON procedures exactly as before.
 
 ### Key Features
 
@@ -17,6 +19,61 @@ Oneshot Copilot guides users through multi-step procedures by analyzing video fr
 - **Single in-flight request** per user to prevent overload
 - **Timeout handling** with automatic reset
 - **Client callbacks** for progress updates
+- **Modular VLM providers** — switch between local and cloud VLM services
+- **Flexible procedure sources** — load procedures from local JSON or external Memory Service
+
+## Procedure Sources
+
+Oneshot Copilot supports multiple ways to load procedure definitions:
+
+### Local JSON Procedures (Default)
+
+Procedures are loaded from JSON files in `app/data/procedures/`. This is the standard approach and requires no external dependencies.
+
+```bash
+# Start a procedure by ID
+POST /api/start_procedure?username=alice&procedure_id=pizza_custom@v1
+
+# Or by file path  
+POST /api/start_procedure?username=alice&procedure_file=app/data/procedures/pizza_custom.json
+```
+
+### Memory Service Integration (Optional)
+
+For advanced use cases, procedures can be fetched from an external **Memory Service**. This is a **private repository** that provides:
+- Centralized procedure storage and versioning
+- Dynamic procedure updates without redeployment
+- Integration with the Mentra ecosystem
+
+To use Memory Service procedures, prefix the procedure ID with `starting:` in the MentraApp:
+
+```javascript
+// In mainwebview.ejs
+<div class="procedure-item" data-procedure="starting:detect_office_items">
+```
+
+This signals the backend to fetch the procedure from the Memory Service instead of local files.
+
+> [!NOTE]
+> The Memory Service integration is optional. All existing local JSON procedures continue to work without any changes. You can mix and match both approaches.
+
+## Changing the VLM Provider
+
+Oneshot Copilot supports multiple Vision Language Model (VLM) providers. Configure the provider in your `.env` file:
+
+```env
+# VLM Provider Configuration
+# Options: "local", "moondream", "auki_local"
+VLM_PROVIDER=auki_local
+```
+
+| Provider | Description | Required Config |
+|----------|-------------|----------------|
+| `local` | Generic local VLM service | `VLM_URL` |
+| `auki_local` | Auki Labs VLM Node (recommended for development) | `VLM_URL` |
+| `moondream` | Moondream AI cloud service | `MOONDREAM_API_KEY` |
+
+See [CLOUD_VLM.md](CLOUD_VLM.md) for detailed Moondream configuration.
 
 ## Architecture
 
