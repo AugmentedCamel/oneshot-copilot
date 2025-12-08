@@ -183,7 +183,7 @@ def session_to_dict(session: UserSession) -> Dict:
 @router.post("/vlm/callback")
 async def vlm_callback(request: Request) -> Dict:
     """
-    Receive VLM decision callback.
+    Receive VLM decision callback (legacy endpoint).
     """
     logger.info(f"[VLM_CALLBACK] Request received from VLM service")
     try:
@@ -207,24 +207,14 @@ async def vlm_callback(request: Request) -> Dict:
             
         payload = body
         
-        # Extract decision
+        # Extract decision from legacy format
         data = payload.get("data") or {}
-        result = data.get("result")
-        neg_result = data.get("negative_result")
-        final = data.get("final")
-        
-        if not result and not neg_result and not final:
-            # Fallback to response structure
-            # Try to find any active procedure for this user?
-            # For now, require procedure_id or fail if we can't load
-            # But wait, if we don't have procedure_id, we can't load the file with the current naming scheme
-            # Let's assume procedure_id is passed or we might need to look it up
-            pass
+        decision_str = data.get("final") or data.get("result")
+        decision = Decision.parse(decision_str)
 
         status_data = load_user_status(username, procedure_id)
         if not status_data:
             logger.warning(f"Session not found for user {username} procedure {procedure_id}")
-            # If session not found, we can't process the state machine
             return {"ok": False, "error": "Session not found"}
             
         session = reconstruct_session(status_data)
@@ -245,7 +235,7 @@ async def vlm_callback(request: Request) -> Dict:
         updated_status_data = session_to_dict(session)
         save_user_status(username, updated_status_data)
         
-        # Log events (in a real system, we'd publish them to the event bus)
+        # Log events
         for event in events:
             logger.info(f"[EVENT] {event}")
             
@@ -262,3 +252,112 @@ async def vlm_callback(request: Request) -> Dict:
     except Exception as e:
         logger.error(f"[VLM_CALLBACK] Failed to process callback - error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to process VLM callback: {str(e)}")
+
+
+@router.post("/vlm/reasoning_callback")
+async def reasoning_callback(request: Request) -> Dict:
+    """
+    Receive reasoning decision callback from ai_node.
+    
+    Expected payload schema:
+    {
+        "username": "...",
+        "status": "IN_PROGRESS" | "COMPLETE" | "MISTAKE" | "IRRELEVANT",
+        "confidence": 0.95,
+        "reasoning": "The butter is golden brown...",
+        "tts_message": "You seem to be done! The butter looks perfect."
+    }
+    """
+    logger.info(f"[REASONING_CALLBACK] Request received from ai_node")
+    try:
+        # Parse body
+        try:
+            payload = await request.json()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {str(e)}")
+        
+        username = payload.get("username")
+        status = payload.get("status")
+        confidence = payload.get("confidence", 0.0)
+        reasoning = payload.get("reasoning", "")
+        tts_message = payload.get("tts_message")
+        
+        if not username:
+            raise HTTPException(status_code=400, detail="Missing required field: username")
+        
+        if not status:
+            raise HTTPException(status_code=400, detail="Missing required field: status")
+        
+        logger.info(f"[REASONING_CALLBACK] Processing for {username}: status={status}, confidence={confidence}")
+        
+        # Get active session from procedure_service (in-memory)
+        from app.services.procedure_service import procedure_service
+        
+        sessions = procedure_service._active_sessions.get(username, [])
+        if not sessions:
+            logger.warning(f"[REASONING_CALLBACK] No active session for user {username}")
+            return {"ok": False, "error": "No active session for user"}
+        
+        # Use the first active session (typically there's only one)
+        session = sessions[0]
+        
+        # Map status to Decision
+        status_upper = status.upper()
+        decision_map = {
+            "COMPLETE": Decision.YES,
+            "IN_PROGRESS": Decision.NO,
+            "MISTAKE": Decision.NO,
+            "IRRELEVANT": Decision.NOT_APPLICABLE
+        }
+        decision = decision_map.get(status_upper, Decision.NO)
+        
+        logger.info(f"[REASONING_CALLBACK] Mapped status '{status}' to decision '{decision.value}'")
+        
+        # Construct minimal vlm_response for compatibility
+        vlm_response = {
+            "status": status,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "data": {
+                "final": decision.value
+            }
+        }
+        
+        # Handle state machine update
+        now_ms = int(time.time() * 1000)
+        events = engine.handle_vlm_decision(
+            session=session,
+            frame_id=None,  # Reasoning callbacks are not tied to a specific frame (batched)
+            decision=decision,
+            vlm_response=vlm_response,
+            rule_validator=rule_validator,
+            context_analyzer=context_analyzer,
+            now_ms=now_ms
+        )
+        
+        # Log events
+        for event in events:
+            logger.info(f"[REASONING_CALLBACK] Event: {event}")
+        
+        # Handle TTS feedback (already batched by ai_node, safe to speak)
+        if tts_message:
+            try:
+                from app.services.feedback_service import feedback_service
+                await feedback_service.send_agent_reply(username, tts_message)
+                logger.info(f"[REASONING_CALLBACK] Sent TTS message to {username}: {tts_message[:50]}...")
+            except Exception as e:
+                logger.error(f"[REASONING_CALLBACK] Failed to send TTS: {e}")
+        
+        return {
+            "ok": True,
+            "username": username,
+            "status": status,
+            "decision": decision.value,
+            "events_count": len(events)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REASONING_CALLBACK] Failed to process callback - error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process reasoning callback: {str(e)}")

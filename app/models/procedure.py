@@ -2,7 +2,7 @@
 import json
 import logging
 from typing import Dict
-from app.domain.models import ProcedureDef, StepDef
+from app.domain.models import ProcedureDef, StepDef, ReasoningConfig
 from app.models.rules import RuleDef
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,20 @@ def procedure_from_json(j: Dict) -> ProcedureDef:
                 )
                 rules_list.append(rule)
         
+        # Parse reasoning_config if it exists (for ai_node integration)
+        reasoning_config = None
+        if "reasoning_config" in st:
+            rc = st["reasoning_config"]
+            reasoning_config = ReasoningConfig(
+                step_id=rc.get("step_id", str(st["id"])),
+                instruction=rc.get("instruction", ""),
+                action_type=rc.get("type", "durative"),
+                perception=rc.get("perception", {}),
+                reasoning=rc.get("reasoning", {}),
+                coaching=rc.get("coaching", {})
+            )
+            logger.debug(f"[PROCEDURE_PARSE] Parsed reasoning_config for step {st['id']}")
+        
         steps.append(StepDef(
             id=st["id"],
             name=st["name"],
@@ -60,6 +74,7 @@ def procedure_from_json(j: Dict) -> ProcedureDef:
             debounce_consecutive_yes=st["debounce"]["consecutive_yes"],
             debug=debug_value,
             rules=rules_list,
+            reasoning_config=reasoning_config,
         ))
     logger.info(f"[PROCEDURE_PARSE] Successfully parsed {len(steps)} steps from JSON")
     return ProcedureDef(

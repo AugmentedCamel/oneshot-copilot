@@ -18,6 +18,9 @@ async def run_startup_initialization():
     Initialize the application by registering default sources and starting background tasks.
     """
     logger.info("Running startup initialization...")
+    
+    # Log VLM Strategy mode
+    logger.info(f"[STARTUP] VLM Strategy: {settings.VLM_STRATEGY} {'(async ai_node)' if settings.VLM_STRATEGY == 'reasoning' else '(sync VLM)'}")
 
     # Initialize Audio Analyzer models
     try:

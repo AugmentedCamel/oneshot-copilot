@@ -18,6 +18,7 @@ from app.services.rule_validation import RuleValidationService
 from app.services.context_analysis import ContextAnalysisService
 from app.services.procedure_strategy import LocalFileProcedureStrategy, MemoryBasedProcedureStrategy
 from app.services.memory_service_client import MemoryServiceClient
+from app.core.ai_node_client import dispatch_to_ai_node, is_reasoning_mode
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +252,64 @@ class ProcedureService:
 
             # 2. Prepare VLM Args
             step_def = event.step_def
+            
+            # === DEBUG: Log step_def to trace reasoning_config ===
+            logger.info(f"[VLM_DISPATCH_DEBUG] step_def keys: {list(step_def.keys())}")
+            logger.info(f"[VLM_DISPATCH_DEBUG] reasoning_config present: {'reasoning_config' in step_def and step_def['reasoning_config'] is not None}")
+            logger.info(f"[VLM_DISPATCH_DEBUG] is_reasoning_mode(): {is_reasoning_mode()}")
+            if step_def.get("reasoning_config"):
+                logger.info(f"[VLM_DISPATCH_DEBUG] reasoning_config value: {step_def['reasoning_config']}")
+            
+            # Check if we should use async reasoning mode
+            reasoning_config = step_def.get("reasoning_config")
+            if is_reasoning_mode() and reasoning_config:
+                # =====================================================
+                # ASYNC REASONING MODE: Fire-and-forget to ai_node
+                # =====================================================
+                from app.domain.models import ReasoningConfig
+                
+                # Reconstruct ReasoningConfig from dict
+                rc = ReasoningConfig(
+                    step_id=reasoning_config.get("step_id", str(step_def.get("id"))),
+                    instruction=reasoning_config.get("instruction", ""),
+                    action_type=reasoning_config.get("action_type", "durative"),
+                    perception=reasoning_config.get("perception", {}),
+                    reasoning=reasoning_config.get("reasoning", {}),
+                    coaching=reasoning_config.get("coaching", {})
+                )
+                
+                metadata = {
+                    "username": session.username,
+                    "session_id": session.external_session_id or "unknown",
+                    "frame_id": event.frame_id
+                }
+                
+                success = await dispatch_to_ai_node(
+                    frame_bytes=frame_bytes,
+                    metadata=metadata,
+                    reasoning_config=rc
+                )
+                
+                if success:
+                    logger.info(f"[REASONING] Frame dispatched to ai_node for {session.username}")
+                    # Reset inflight immediately - don't wait for callback
+                    # This allows continuous frame streaming at ~5 FPS
+                    session.inflight = False
+                    session.inflight_since_ms = None
+                    import time
+                    session.last_dispatch_ms = int(time.time() * 1000)
+                else:
+                    logger.warning(f"[REASONING] Failed to dispatch frame to ai_node for {session.username}")
+                    # Reset inflight so next frame can try
+                    session.inflight = False
+                    session.inflight_since_ms = None
+                
+                # State update will happen in callback - don't process here
+                return
+            
+            # =====================================================
+            # LEGACY SYNC MODE: Wait for VLM response
+            # =====================================================
             question = step_def.get("positives", ["Is this correct?"])[0] 
             
             negatives = step_def.get("negatives", [])

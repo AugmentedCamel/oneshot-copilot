@@ -46,6 +46,12 @@ class ProcedureEngine:
                 "params": rule.params
             })
             
+        # Serialize reasoning_config if present
+        reasoning_config_data = None
+        if s.reasoning_config:
+            from dataclasses import asdict
+            reasoning_config_data = asdict(s.reasoning_config)
+            
         return {
             "id": s.id,
             "name": s.name,
@@ -55,7 +61,8 @@ class ProcedureEngine:
             "debounce_consecutive_yes": s.debounce_consecutive_yes,
             "bounding_questions": s.bounding_questions,
             "debug": s.debug,
-            "rules": rules_data
+            "rules": rules_data,
+            "reasoning_config": reasoning_config_data
         }
 
     def start_procedure(self, session: UserSession, procedure: ProcedureDef, now_ms: int) -> List[DomainEvent]:
@@ -121,7 +128,7 @@ class ProcedureEngine:
     def handle_vlm_decision(
         self,
         session: UserSession,
-        frame_id: str,
+        frame_id: Optional[str],  # Can be None for reasoning callbacks (batched, not tied to specific frame)
         decision: Decision,
         vlm_response: Optional[Dict],
         rule_validator: Optional[RuleValidator],
@@ -137,13 +144,13 @@ class ProcedureEngine:
         if not step or session.step_rt.id != step.id:
             return events
 
-        # Mark inflight done
+        # Mark inflight done (only relevant for legacy sync mode)
         session.inflight = False
         session.inflight_since_ms = None
         # Keep inflight_frame_id for deduplication (handled in _maybe_dispatch)
 
-        # Context Analysis
-        if vlm_response and context_analyzer:
+        # Context Analysis (skip if no frame_id - reasoning mode)
+        if vlm_response and context_analyzer and frame_id:
             try:
                 context_analyzer.analyze(
                     username=session.username,
@@ -154,8 +161,8 @@ class ProcedureEngine:
             except Exception as e:
                 logger.error(f"Context analysis failed: {e}")
 
-        # Rule Validation
-        if step.has_rules() and vlm_response and rule_validator:
+        # Rule Validation (skip if no frame_id - reasoning mode)
+        if step.has_rules() and vlm_response and rule_validator and frame_id:
             if session.step_rt.rule_runtime is None:
                 session.step_rt.rule_runtime = RuleRuntime()
             
@@ -328,6 +335,14 @@ class ProcedureEngine:
         step = self._current_step_def(session)
         if not step:
             return []
+
+        # Rate limiting for reasoning mode: max ~1 FPS (1000ms between dispatches)
+        # Only apply if step has reasoning_config (reasoning mode)
+        if step.reasoning_config and session.last_dispatch_ms is not None:
+            time_since_last = now_ms - session.last_dispatch_ms
+            if time_since_last < 1000:  # 1000ms = 1 FPS
+                # Too soon, skip this frame
+                return []
 
         if frame_id is None:
             frame_id = session.buffered_frame

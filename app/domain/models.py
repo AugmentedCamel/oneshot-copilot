@@ -47,6 +47,17 @@ class Decision(str, Enum):
 
 
 @dataclass
+class ReasoningConfig:
+    """Configuration for the ai_node reasoning engine."""
+    step_id: str
+    instruction: str
+    action_type: str  # "durative" or "punctual"
+    perception: Dict[str, List[str]]  # visual_cues, roi_hint
+    reasoning: Dict[str, Dict[str, str]]  # irrelevant, in_progress, complete, mistake
+    coaching: Dict[str, List[Dict[str, str]]]  # tips with trigger/message
+
+
+@dataclass
 class StepDef:
     id: int
     name: str
@@ -57,6 +68,7 @@ class StepDef:
     bounding_questions: List[str] = field(default_factory=list)  # optional: items to detect bounding boxes for
     debug: bool = False  # optional: enable debug logging to file
     rules: List[RuleDef] = field(default_factory=list)  # optional: validation rules for this step
+    reasoning_config: Optional[ReasoningConfig] = None  # optional: ai_node reasoning configuration
     
     def has_rules(self) -> bool:
         """Check if this step has any rules defined."""
@@ -116,3 +128,4 @@ class UserSession:
     vlm_response_time: Optional[float] = None  # When VLM response was received (perf_counter)
     last_feedback_sent_ms: Optional[int] = None  # Track last feedback time
     external_session_id: Optional[str] = None  # ID of the session in the external Memory Service
+    last_dispatch_ms: Optional[int] = None  # Track last frame dispatch time for rate limiting (reasoning mode)
