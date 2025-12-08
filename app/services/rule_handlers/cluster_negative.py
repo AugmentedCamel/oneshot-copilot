@@ -75,9 +75,22 @@ class ClusterNegativeHandler(RuleHandler):
                 details={"reason": "no_vlm_response"}
             )
         
-        # Navigate to bounding results: response -> raw_json -> bounding_results
-        bounding_results = vlm_response.get("bounding_results", [])
+        # Navigate to bounding results: 
+        # 1. Check data.bounding_boxes (standardized)
+        # 2. Check raw.bounding_results (raw response)
+        # 3. Check direct access (legacy)
+        bounding_results = []
         
+        # 1. Standardized
+        if "data" in vlm_response and "bounding_boxes" in vlm_response["data"]:
+            bounding_results = vlm_response["data"]["bounding_boxes"]
+        # 2. Raw
+        elif "raw" in vlm_response and "bounding_results" in vlm_response["raw"]:
+            bounding_results = vlm_response["raw"]["bounding_results"]
+        # 3. Direct/Legacy
+        elif "bounding_results" in vlm_response:
+            bounding_results = vlm_response["bounding_results"]
+            
         print(f"VLM Response structure: response={vlm_response is not None}, bounding_results_count={len(bounding_results)}")
         
         if not bounding_results:
