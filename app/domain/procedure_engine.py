@@ -195,6 +195,13 @@ class ProcedureEngine:
         # Decision Logic
         logger.info(f"[STEP_DEBUG] Processing decision: {decision} for user {session.username}")
         if decision == Decision.YES:
+            # Check for Freeze case (YES + UNCERTAIN Negative)
+            if vlm_response and "data" in vlm_response:
+                neg_res = vlm_response["data"].get("negative_result")
+                if neg_res and Decision.parse(neg_res) == Decision.UNCERTAIN:
+                    logger.info(f"[STEP_DEBUG] Freeze case (Pos=YES, Neg=UNCERTAIN): Frozen yes count at {session.step_rt.yes_consecutive}")
+                    return events
+
             session.step_rt.yes_consecutive += 1
             logger.info(f"[STEP_DEBUG] YES count: {session.step_rt.yes_consecutive}/{step.debounce_consecutive_yes}")
             
@@ -250,6 +257,7 @@ class ProcedureEngine:
             # In this case, we decrement consecutive yes by 1 instead of resetting.
             
             is_penalize_case = False
+            is_freeze_case = False
             if vlm_response and "data" in vlm_response:
                 data = vlm_response["data"]
                 # Check positive result (usually "result")
@@ -261,12 +269,19 @@ class ProcedureEngine:
                     # Parse both to be sure
                     p_dec = Decision.parse(pos_res)
                     n_dec = Decision.parse(neg_res)
-                    if p_dec == Decision.YES and n_dec == Decision.YES:
-                        is_penalize_case = True
+                    
+                    if p_dec == Decision.YES:
+                        if n_dec == Decision.YES:
+                            is_penalize_case = True
+                        elif n_dec == Decision.UNCERTAIN:
+                            is_freeze_case = True
             
             if is_penalize_case:
                 session.step_rt.yes_consecutive = max(0, session.step_rt.yes_consecutive - 1)
                 logger.info(f"[STEP_DEBUG] Penalize case (Pos=YES, Neg=YES): Decremented yes count to {session.step_rt.yes_consecutive}")
+            elif is_freeze_case:
+                # Do nothing, keep consecutive yes count the same
+                logger.info(f"[STEP_DEBUG] Freeze case (Pos=YES, Neg=UNCERTAIN): Frozen yes count at {session.step_rt.yes_consecutive}")
             else:
                 session.step_rt.yes_consecutive = 0
                 logger.info(f"[STEP_DEBUG] Decision {decision}: Reset yes count to 0")
