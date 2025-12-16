@@ -2,7 +2,7 @@
 import json
 import logging
 from typing import Dict
-from app.domain.models import ProcedureDef, StepDef, ReasoningConfig
+from app.domain.models import ProcedureDef, StepDef, ReasoningConfig, CouncilMember, CouncilConfig
 from app.models.rules import RuleDef
 
 logger = logging.getLogger(__name__)
@@ -50,31 +50,46 @@ def procedure_from_json(j: Dict) -> ProcedureDef:
                 )
                 rules_list.append(rule)
         
-        # Parse reasoning_config if it exists (for ai_node integration)
+        # Parse step_context if it exists (for ai_node integration)
         reasoning_config = None
-        if "reasoning_config" in st:
-            rc = st["reasoning_config"]
+        if "step_context" in st:
+            rc = st["step_context"]
+            
+            # Parse council if present
+            council_config = None
+            if "council" in rc:
+                council_data = rc["council"]
+                members = []
+                for m in council_data.get("members", []):
+                    members.append(CouncilMember(
+                        role=m["role"],
+                        prompt=m["prompt"],
+                        attention=m.get("attention", "PRIMARY"),
+                        weight=m.get("weight", 1.0)
+                    ))
+                council_config = CouncilConfig(
+                    members=members,
+                    reasoning_rules=council_data.get("reasoning_rules", {})
+                )
+            
             reasoning_config = ReasoningConfig(
                 step_id=rc.get("step_id", str(st["id"])),
                 instruction=rc.get("instruction", ""),
-                action_type=rc.get("type", "durative"),
-                perception=rc.get("perception", {}),
-                reasoning=rc.get("reasoning", {}),
-                coaching=rc.get("coaching", {})
+                council=council_config
             )
-            logger.debug(f"[PROCEDURE_PARSE] Parsed reasoning_config for step {st['id']}")
+            logger.debug(f"[PROCEDURE_PARSE] Parsed step_context for step {st['id']}")
         
         steps.append(StepDef(
             id=st["id"],
             name=st["name"],
-            positives=st["positives"],
-            negatives=negatives_value,
-            bounding_questions=bounding_value,
             timeout_s=st["timeout_s"],
             debounce_consecutive_yes=st["debounce"]["consecutive_yes"],
+            positives=st.get("positives", []),  # Optional for council-based procedures
+            negatives=negatives_value,
+            bounding_questions=bounding_value,
             debug=debug_value,
             rules=rules_list,
-            reasoning_config=reasoning_config,
+            step_context=reasoning_config,
         ))
     logger.info(f"[PROCEDURE_PARSE] Successfully parsed {len(steps)} steps from JSON")
     return ProcedureDef(

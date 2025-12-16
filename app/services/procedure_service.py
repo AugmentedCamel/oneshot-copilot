@@ -253,29 +253,46 @@ class ProcedureService:
             # 2. Prepare VLM Args
             step_def = event.step_def
             
-            # === DEBUG: Log step_def to trace reasoning_config ===
+            # === DEBUG: Log step_def to trace step_context ===
             logger.info(f"[VLM_DISPATCH_DEBUG] step_def keys: {list(step_def.keys())}")
-            logger.info(f"[VLM_DISPATCH_DEBUG] reasoning_config present: {'reasoning_config' in step_def and step_def['reasoning_config'] is not None}")
+            logger.info(f"[VLM_DISPATCH_DEBUG] step_context present: {'step_context' in step_def and step_def['step_context'] is not None}")
             logger.info(f"[VLM_DISPATCH_DEBUG] is_reasoning_mode(): {is_reasoning_mode()}")
-            if step_def.get("reasoning_config"):
-                logger.info(f"[VLM_DISPATCH_DEBUG] reasoning_config value: {step_def['reasoning_config']}")
+            if step_def.get("step_context"):
+                logger.info(f"[VLM_DISPATCH_DEBUG] step_context value: {step_def['step_context']}")
             
             # Check if we should use async reasoning mode
-            reasoning_config = step_def.get("reasoning_config")
-            if is_reasoning_mode() and reasoning_config:
+            step_context = step_def.get("step_context")
+            reasoning_mode = is_reasoning_mode()
+            logger.info(f"[VLM_DISPATCH_DEBUG] DECISION CHECK: reasoning_mode={reasoning_mode}, step_context_present={step_context is not None and bool(step_context)}")
+            logger.info(f"[VLM_DISPATCH_DEBUG] VLM_STRATEGY setting = '{settings.VLM_STRATEGY}'")
+            if is_reasoning_mode() and step_context:
                 # =====================================================
                 # ASYNC REASONING MODE: Fire-and-forget to ai_node
                 # =====================================================
-                from app.domain.models import ReasoningConfig
+                from app.domain.models import ReasoningConfig, CouncilMember, CouncilConfig
+                
+                # Reconstruct CouncilConfig from dict if present
+                council_config = None
+                if step_context.get("council"):
+                    council_data = step_context["council"]
+                    members = []
+                    for m in council_data.get("members", []):
+                        members.append(CouncilMember(
+                            role=m["role"],
+                            prompt=m["prompt"],
+                            attention=m.get("attention", "PRIMARY"),
+                            weight=m.get("weight", 1.0)
+                        ))
+                    council_config = CouncilConfig(
+                        members=members,
+                        reasoning_rules=council_data.get("reasoning_rules", {})
+                    )
                 
                 # Reconstruct ReasoningConfig from dict
                 rc = ReasoningConfig(
-                    step_id=reasoning_config.get("step_id", str(step_def.get("id"))),
-                    instruction=reasoning_config.get("instruction", ""),
-                    action_type=reasoning_config.get("action_type", "durative"),
-                    perception=reasoning_config.get("perception", {}),
-                    reasoning=reasoning_config.get("reasoning", {}),
-                    coaching=reasoning_config.get("coaching", {})
+                    step_id=step_context.get("step_id", str(step_def.get("id"))),
+                    instruction=step_context.get("instruction", ""),
+                    council=council_config
                 )
                 
                 metadata = {

@@ -45,11 +45,32 @@ class MemoryBasedProcedureStrategy(ProcedureStrategy):
             if isinstance(proc_json, dict) and "definition" in proc_json:
                 logger.debug(f"Unwrapping procedure definition for {procedure_id}")
                 proc_json = proc_json["definition"]
+            
+            # === VALIDATION: Check if procedure has step_context fields ===
+            steps = proc_json.get("steps", [])
+            steps_with_context = sum(1 for s in steps if s.get("step_context"))
+            total_steps = len(steps)
+            
+            if total_steps > 0 and steps_with_context == 0:
+                error_msg = (
+                    f"Procedure '{procedure_id}' from memory does not match the current procedure logic. "
+                    f"The procedure is missing 'step_context' fields required for ai_node reasoning. "
+                    f"Please start a different procedure file or re-upload this procedure with step_context/council configuration."
+                )
+                logger.error(f"[PROCEDURE_VALIDATION] {error_msg}")
+                raise ValueError(error_msg)
+            elif steps_with_context < total_steps:
+                logger.warning(
+                    f"[PROCEDURE_VALIDATION] Procedure '{procedure_id}' has partial step_context: "
+                    f"{steps_with_context}/{total_steps} steps have council config"
+                )
+            else:
+                logger.info(f"[PROCEDURE_VALIDATION] ✓ Procedure '{procedure_id}' has step_context on all {total_steps} steps")
                 
             return procedure_from_json(proc_json)
         except Exception as e:
             logger.error(f"Failed to load procedure from memory: {e}")
-            raise ValueError(f"Could not load procedure {procedure_id} from memory service")
+            raise ValueError(f"Could not load procedure {procedure_id} from memory service: {e}")
 
     async def initialize_session(self, username: str, procedure_id: str, source_id: str) -> str:
         logger.info(f"Initializing memory session for {username}")

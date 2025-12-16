@@ -12,6 +12,29 @@
       "timeout_s": 200,
       "debounce": {
         "consecutive_yes": 3
+      },
+      "step_context": {
+        "step_id": "show_pizza_dough",
+        "instruction": "Present a plain pizza dough",
+        "council": {
+          "members": [
+            {
+              "role": "state_analyst",
+              "prompt": "Is there a plain pizza dough visible?",
+              "attention": "PRIMARY",
+              "weight": 0.9
+            },
+            {
+              "role": "quality_inspector",
+              "prompt": "Is the dough properly shaped and ready for toppings?",
+              "attention": "SECONDARY",
+              "weight": 0.4
+            }
+          ],
+          "reasoning_rules": {
+            "complete": "state_analyst == 'Yes'"
+          }
+        }
       }
     },
     {
@@ -23,6 +46,29 @@
       "timeout_s": 200,
       "debounce": {
         "consecutive_yes": 4
+      },
+      "step_context": {
+        "step_id": "add_salami",
+        "instruction": "Add salami slices evenly on the pizza",
+        "council": {
+          "members": [
+            {
+              "role": "state_analyst",
+              "prompt": "Are salami slices visible on the pizza?",
+              "attention": "PRIMARY",
+              "weight": 0.9
+            },
+            {
+              "role": "distribution_checker",
+              "prompt": "Are the salami slices evenly distributed?",
+              "attention": "PRIMARY",
+              "weight": 0.7
+            }
+          ],
+          "reasoning_rules": {
+            "complete": "state_analyst == 'Yes' AND distribution_checker == 'Yes'"
+          }
+        }
       }
     },
     {
@@ -31,7 +77,9 @@
       "positives": [
         "Do you see sliced mushrooms spread evenly across the pizza base, covering a large part of it. Only answer with [yes] or [no]"
       ],
-      "bounding_questions": ["mushrooms"],
+      "bounding_questions": [
+        "mushrooms"
+      ],
       "rules": [
         {
           "type": "cluster_negative",
@@ -48,9 +96,38 @@
       ],
       "timeout_s": 200,
       "debounce": {
-        "consecutive_yes":3
+        "consecutive_yes": 3
       },
-      "debug": true
+      "debug": true,
+      "step_context": {
+        "step_id": "add_mushrooms",
+        "instruction": "Add sliced mushrooms evenly across the pizza",
+        "council": {
+          "members": [
+            {
+              "role": "state_analyst",
+              "prompt": "Are mushroom slices visible on the pizza?",
+              "attention": "PRIMARY",
+              "weight": 0.9
+            },
+            {
+              "role": "distribution_checker",
+              "prompt": "Are the mushrooms spread evenly without clustering?",
+              "attention": "CRITICAL",
+              "weight": 0.8
+            },
+            {
+              "role": "coverage_analyst",
+              "prompt": "Do the mushrooms cover a large part of the pizza?",
+              "attention": "SECONDARY",
+              "weight": 0.5
+            }
+          ],
+          "reasoning_rules": {
+            "complete": "state_analyst == 'Yes' AND distribution_checker == 'Yes'"
+          }
+        }
+      }
     },
     {
       "id": 4,
@@ -61,6 +138,29 @@
       "timeout_s": 200,
       "debounce": {
         "consecutive_yes": 3
+      },
+      "step_context": {
+        "step_id": "add_basil",
+        "instruction": "Add multiple green basil leaves on top",
+        "council": {
+          "members": [
+            {
+              "role": "state_analyst",
+              "prompt": "Are green basil leaves visible on the pizza?",
+              "attention": "PRIMARY",
+              "weight": 0.9
+            },
+            {
+              "role": "quantity_checker",
+              "prompt": "Are there multiple basil leaves (more than one)?",
+              "attention": "PRIMARY",
+              "weight": 0.7
+            }
+          ],
+          "reasoning_rules": {
+            "complete": "state_analyst == 'Yes' AND quantity_checker == 'Yes'"
+          }
+        }
       }
     }
   ]

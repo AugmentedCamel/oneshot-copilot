@@ -121,7 +121,7 @@ def get_vlm_strategy():
     
     if provider == "local":
         logger.info("[VLM_FACTORY] Creating Local VLM strategy")
-        return LocalVLMStrategy(vlm_url=settings.VLM_URL)
+        return LocalVLMStrategy(vlm_url=settings.AI_NODE_URL)
     
     elif provider == "moondream":
         logger.info("[VLM_FACTORY] Creating Moondream AI strategy")

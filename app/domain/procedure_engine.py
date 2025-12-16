@@ -46,11 +46,11 @@ class ProcedureEngine:
                 "params": rule.params
             })
             
-        # Serialize reasoning_config if present
-        reasoning_config_data = None
-        if s.reasoning_config:
+        # Serialize step_context if present
+        step_context_data = None
+        if s.step_context:
             from dataclasses import asdict
-            reasoning_config_data = asdict(s.reasoning_config)
+            step_context_data = asdict(s.step_context)
             
         return {
             "id": s.id,
@@ -62,7 +62,7 @@ class ProcedureEngine:
             "bounding_questions": s.bounding_questions,
             "debug": s.debug,
             "rules": rules_data,
-            "reasoning_config": reasoning_config_data
+            "step_context": step_context_data
         }
 
     def start_procedure(self, session: UserSession, procedure: ProcedureDef, now_ms: int) -> List[DomainEvent]:
@@ -337,8 +337,8 @@ class ProcedureEngine:
             return []
 
         # Rate limiting for reasoning mode: max ~1 FPS (1000ms between dispatches)
-        # Only apply if step has reasoning_config (reasoning mode)
-        if step.reasoning_config and session.last_dispatch_ms is not None:
+        # Only apply if step has step_context (reasoning mode)
+        if step.step_context and session.last_dispatch_ms is not None:
             time_since_last = now_ms - session.last_dispatch_ms
             if time_since_last < 1000:  # 1000ms = 1 FPS
                 # Too soon, skip this frame

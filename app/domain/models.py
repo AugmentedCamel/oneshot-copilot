@@ -47,28 +47,43 @@ class Decision(str, Enum):
 
 
 @dataclass
+class CouncilMember:
+    """A single member of the visual council."""
+    role: str  # e.g., "safety_inspector", "state_analyst"
+    prompt: str  # The question/prompt for this role
+    attention: str = "PRIMARY"  # "CRITICAL", "PRIMARY", "SECONDARY"
+    weight: float = 1.0  # Weight for this member's response
+
+
+@dataclass
+class CouncilConfig:
+    """Configuration for the visual council multi-role inference."""
+    members: List[CouncilMember] = field(default_factory=list)
+    reasoning_rules: Dict[str, str] = field(default_factory=dict)  # e.g., {"complete": "state_analyst == 'Translucent'"}
+
+
+@dataclass
 class ReasoningConfig:
     """Configuration for the ai_node reasoning engine."""
     step_id: str
     instruction: str
-    action_type: str  # "durative" or "punctual"
-    perception: Dict[str, List[str]]  # visual_cues, roi_hint
-    reasoning: Dict[str, Dict[str, str]]  # irrelevant, in_progress, complete, mistake
-    coaching: Dict[str, List[Dict[str, str]]]  # tips with trigger/message
+    council: Optional[CouncilConfig] = None  # Multi-role visual council configuration
 
 
 @dataclass
 class StepDef:
+    # Required fields (must come first in dataclass)
     id: int
     name: str
-    positives: List[str]
-    negatives: List[str]
     timeout_s: int
     debounce_consecutive_yes: int  # expect 2 for now
+    # Optional fields with defaults (must come after required fields)
+    positives: List[str] = field(default_factory=list)  # optional for council-based procedures
+    negatives: List[str] = field(default_factory=list)
     bounding_questions: List[str] = field(default_factory=list)  # optional: items to detect bounding boxes for
     debug: bool = False  # optional: enable debug logging to file
     rules: List[RuleDef] = field(default_factory=list)  # optional: validation rules for this step
-    reasoning_config: Optional[ReasoningConfig] = None  # optional: ai_node reasoning configuration
+    step_context: Optional[ReasoningConfig] = None  # optional: ai_node step context configuration
     
     def has_rules(self) -> bool:
         """Check if this step has any rules defined."""
