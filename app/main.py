@@ -94,6 +94,11 @@ from app.api import agent
 app.include_router(agent.router, prefix="/api/v2/agent", tags=["Agent Assist"])
 logger.debug("Registered Agent Assist router at /api/v2/agent")
 
+# Node Graph Procedures
+from app.api import nodegraph_v2
+app.include_router(nodegraph_v2.router, prefix="/api/v2/procedures", tags=["Node Graph Procedures"])
+logger.debug("Registered Node Graph Procedures router at /api/v2/procedures")
+
 logger.info("All API routers registered successfully")
 
 # Initialize new services

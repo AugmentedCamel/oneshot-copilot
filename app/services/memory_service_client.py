@@ -52,6 +52,25 @@ class MemoryServiceClient:
         except Exception as e:
             logger.error(f"Failed to log item to session {session_id}: {e}")
             # We might not want to raise here to avoid breaking the main flow just because logging failed
+
+    async def get_knowledge_graph(self, procedure_id: str) -> Dict[str, Any]:
+        """Fetch knowledge graph procedure from Memory Service.
+        
+        Args:
+            procedure_id: The procedure ID to fetch
+            
+        Returns:
+            Knowledge graph response containing 'definition' with nodes
+        """
+        url = f"{self.base_url}/knowledge-graph/{procedure_id}"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, timeout=5.0)
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.error(f"Failed to fetch knowledge graph {procedure_id}: {e}")
+            raise
             
     async def close_session(self, session_id: str) -> None:
         """Close the session."""

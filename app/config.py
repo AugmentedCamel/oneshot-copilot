@@ -65,7 +65,7 @@ class Settings(BaseSettings):
 
     # Memory Service Configuration
     MEMORY_SERVICE_URL: str = "http://localhost:8040"
-    PROCEDURE_STRATEGY: str = "memory"  # Options: "local", "memory"
+    PROCEDURE_STRATEGY: str = "memory"  # Options: "local", "memory", "nodegraph"
     
     class Config:
         env_file = ".env"
