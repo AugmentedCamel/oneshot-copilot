@@ -182,3 +182,4 @@ cython_debug/
 /app/data/frames
 /app/data/user_status
 /app/data/user_status
+/data_lake

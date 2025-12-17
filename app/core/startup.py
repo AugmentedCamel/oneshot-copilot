@@ -60,7 +60,15 @@ async def run_startup_initialization():
     else:
         logger.info("No default RTSP stream configured.")
 
-    # 2. TODO: Register Plugins (when plugin system is ready)
+    # 3. Start Data Harvester if enabled
+    if settings.DATA_HARVESTER_ENABLED:
+        from app.services.data_harvester import data_harvester
+        logger.info("Data Harvester is enabled, starting...")
+        data_harvester.start()
+    else:
+        logger.info("Data Harvester is disabled.")
+
+    # 4. TODO: Register Plugins (when plugin system is ready)
     # logger.info("Scanning for plugins...")
     
     logger.info("Startup initialization complete.")

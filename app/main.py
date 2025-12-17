@@ -99,6 +99,11 @@ from app.api import nodegraph_v2
 app.include_router(nodegraph_v2.router, prefix="/api/v2/procedures", tags=["Node Graph Procedures"])
 logger.debug("Registered Node Graph Procedures router at /api/v2/procedures")
 
+# Data Harvester
+from app.api import harvester
+app.include_router(harvester.router, prefix="/api/v2", tags=["Data Harvester"])
+logger.debug("Registered Data Harvester router at /api/v2")
+
 logger.info("All API routers registered successfully")
 
 # Initialize new services

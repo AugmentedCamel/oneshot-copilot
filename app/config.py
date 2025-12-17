@@ -63,9 +63,12 @@ class Settings(BaseSettings):
     MAX_FRAMES_PER_USER: int = 10
     SAVE_FRAMES_TO_DISK: bool = False  # Save frames to disk for debugging/verification
 
-    # Memory Service Configuration
     MEMORY_SERVICE_URL: str = "http://localhost:8040"
     PROCEDURE_STRATEGY: str = "memory"  # Options: "local", "memory", "nodegraph"
+    
+    # Data Harvester Configuration
+    DATA_HARVESTER_ENABLED: bool = False  # Enable harvester mode at startup
+    DATA_HARVESTER_BASE_DIR: str = "data_lake/proc_refill_dishwasher/auto_labeled"
     
     class Config:
         env_file = ".env"

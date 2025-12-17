@@ -18,6 +18,14 @@ class EventBus:
     def subscribe_all(self, callback: Callable[[Event], Any]):
         self._all_subscribers.append(callback)
 
+    def unsubscribe(self, event_type: EventType, callback: Callable[[Event], Any]):
+        """Remove a callback from the subscribers list for the given event type."""
+        if event_type in self._subscribers:
+            try:
+                self._subscribers[event_type].remove(callback)
+            except ValueError:
+                pass  # Callback was not subscribed
+
     async def publish(self, event: Event):
         # Notify specific subscribers
         if event.type in self._subscribers:
