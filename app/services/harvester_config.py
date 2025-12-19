@@ -8,24 +8,33 @@ TODO: Refactor to be dynamically configurable per procedure/project.
 # Key mappings for labeling frames
 # Maps keyboard key codes to class labels (folder names)
 KEY_MAP = {
-    # Phase 1: Setup
-    ord('1'): "door_fully_open",
-    ord('2'): "rack_removed",
+    # Door States
+    ord('1'): "open_door_dishwasher",        # Step 01 & Fallback Assist
+    ord('9'): "closed_door_dishwasher",      # Step 09
     
-    # Phase 2: The Core Action
-    ord('3'): "lid_removed",
-    ord('4'): "funnel_inserted",
-    ord('5'): "pouring_salt_action",
-    ord('6'): "funnel_removed",
-    ord('7'): "lid_closed",
+    # Rack States
+    ord('2'): "removed_rack_bottom",         # Step 02
+    ord('8'): "inserted_rack_bottom",        # Step 08
     
-    # Phase 3: Finish
-    ord('8'): "rack_inserted",
-    ord('9'): "door_closed",
+    # Reservoir Cap
+    ord('3'): "detached_cap_reservoir",      # Step 03
+    ord('7'): "attached_cap_reservoir",      # Step 07
     
-    # Errors & Recovery
-    ord('0'): "error_spill_salt",
-    ord('c'): "spill_cleared"
+    # Funnel States
+    ord('4'): "inserted_funnel_reservoir",   # Step 04
+    ord('6'): "removed_funnel_reservoir",    # Step 06
+    
+    # Actions (Dynamic)
+    ord('5'): "pouring_salt_granular",       # Step 05 (Action)
+    
+    # Errors
+    ord('0'): "spill_salt_floor",            # Step 05 (Error Trigger)
+    
+    # Recovery
+    ord('c'): "clean_floor_stainless",       # Fallback Wipe
+    
+    # Mandatory
+    ord('i'): "class_irrelevant"             # The "Null" Class
 }
 
 # Default base directory for saving labeled frames

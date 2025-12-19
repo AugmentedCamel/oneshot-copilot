@@ -103,6 +103,84 @@ class DataHarvesterService:
             with self._frame_lock:
                 self._latest_frame = frame_bytes
     
+    def _draw_key_guide(self, frame):
+        """Draw a key mapping guide overlay on the frame."""
+        # Define key mapping organized by category
+        key_mapping = [
+            ("KEYBOARD GUIDE", None, (255, 255, 255)),  # Header
+            ("", None, None),  # Spacer
+            ("Door States:", None, (100, 200, 255)),
+            ("1", "open_door_dishwasher", (255, 255, 255)),
+            ("9", "closed_door_dishwasher", (255, 255, 255)),
+            ("", None, None),
+            ("Rack States:", None, (100, 200, 255)),
+            ("2", "removed_rack_bottom", (255, 255, 255)),
+            ("8", "inserted_rack_bottom", (255, 255, 255)),
+            ("", None, None),
+            ("Reservoir Cap:", None, (100, 200, 255)),
+            ("3", "detached_cap_reservoir", (255, 255, 255)),
+            ("7", "attached_cap_reservoir", (255, 255, 255)),
+            ("", None, None),
+            ("Funnel States:", None, (100, 200, 255)),
+            ("4", "inserted_funnel_reservoir", (255, 255, 255)),
+            ("6", "removed_funnel_reservoir", (255, 255, 255)),
+            ("", None, None),
+            ("Actions:", None, (100, 200, 255)),
+            ("5", "pouring_salt_granular", (255, 255, 255)),
+            ("", None, None),
+            ("Errors & Recovery:", None, (100, 200, 255)),
+            ("0", "spill_salt_floor", (255, 255, 255)),
+            ("c", "clean_floor_stainless", (255, 255, 255)),
+            ("", None, None),
+            ("Null Class:", None, (100, 200, 255)),
+            ("i", "class_irrelevant", (255, 255, 255)),
+            ("", None, None),
+            ("Controls:", None, (255, 100, 100)),
+            ("q", "Quit Harvester", (255, 100, 100)),
+        ]
+        
+        # Panel configuration
+        panel_x = frame.shape[1] - 450
+        panel_y = 10
+        panel_width = 440
+        line_height = 24
+        panel_height = len(key_mapping) * line_height + 20
+        
+        # Draw semi-transparent background panel
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (panel_x, panel_y), 
+                     (panel_x + panel_width, panel_y + panel_height),
+                     (40, 40, 40), -1)
+        cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+        
+        # Draw border
+        cv2.rectangle(frame, (panel_x, panel_y),
+                     (panel_x + panel_width, panel_y + panel_height),
+                     (100, 100, 100), 2)
+        
+        # Draw text
+        y_offset = panel_y + 30
+        for key, label, color in key_mapping:
+            if label is None and key == "":
+                # Spacer line
+                y_offset += line_height // 2
+                continue
+            
+            if label is None:
+                # Category header
+                cv2.putText(frame, key, (panel_x + 15, y_offset),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            else:
+                # Key mapping entry
+                key_text = f"[{key}]"
+                cv2.putText(frame, key_text, (panel_x + 15, y_offset),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                cv2.putText(frame, label, (panel_x + 65, y_offset),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+            
+            y_offset += line_height
+
+    
     def _display_loop(self):
         """
         Main display loop with keyboard capture.
@@ -149,9 +227,12 @@ class DataHarvesterService:
                 self.enabled = False
                 break
             
-            # UI Overlay
-            cv2.putText(frame, f"Last: {last_saved_info}", (50, 100), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            # Draw key mapping guide
+            self._draw_key_guide(frame)
+            
+            # UI Overlay - Last saved info
+            cv2.putText(frame, f"Last: {last_saved_info}", (50, 50), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
             
             # Visual Feedback (Screen Flash)
             if flash_timer > 0:
