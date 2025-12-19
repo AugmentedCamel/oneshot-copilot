@@ -336,13 +336,9 @@ class ProcedureEngine:
         if not step:
             return []
 
-        # Rate limiting for reasoning mode: max ~1 FPS (1000ms between dispatches)
-        # Only apply if step has step_context (reasoning mode)
-        if step.step_context and session.last_dispatch_ms is not None:
-            time_since_last = now_ms - session.last_dispatch_ms
-            if time_since_last < 1000:  # 1000ms = 1 FPS
-                # Too soon, skip this frame
-                return []
+        # Rate limiting removed - dispatch as fast as responses come back
+        # The inflight flag already prevents overlapping requests,
+        # so new frames are sent immediately when the previous response arrives
 
         if frame_id is None:
             frame_id = session.buffered_frame
