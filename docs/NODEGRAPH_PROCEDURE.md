@@ -84,12 +84,18 @@ GET /knowledge-graph/{procedure_id}
 | `min_confidence` | float | Minimum confidence threshold (0.0-1.0) |
 | `stability_frames` | int | Consecutive frames to confirm (VISUAL_STATE only) |
 | `duration_threshold_seconds` | float | Action duration required (ACTION_DURATION only) |
+| `excluded_candidates` | array | Classes to exclude from AI scoring (optional) |
+| `candidate_scope` | array | Limit AI detection to only these classes (optional) |
 
 ---
 
 ## AI Service Contract
 
-### Request: Step Node Detection
+The AI node provides two modes of operation:
+
+### Synchronous Mode (Legacy)
+
+Used by the **Prompt Builder** for interactive testing.
 
 ```
 POST /stepnodedetection
@@ -105,8 +111,10 @@ Content-Type: multipart/form-data
 | `frame_id` | string | Unique frame identifier |
 | `procedure_id` | string | Active procedure ID |
 | `target_classes` | JSON array | Classes to check for (e.g., `["door_fully_open", "error_door_blocked"]`) |
+| `excluded_candidates` | JSON array | Classes to exclude from scoring (optional) |
+| `candidate_scope` | JSON array | Limit AI detection to only these classes (optional) |
 
-### Response: Prediction Vector
+**Response:**
 
 ```json
 {
@@ -116,6 +124,105 @@ Content-Type: multipart/form-data
     "rack_removed": 0.15
   }
 }
+```
+
+---
+
+### Asynchronous Mode (Knowledge Graph Procedure)
+
+Used by the **NodeGraph Procedure Service** for high-throughput operation.
+
+#### POST /stepnode/ingest
+
+Non-blocking frame submission. Returns 202 immediately.
+
+```
+POST /stepnode/ingest
+Content-Type: multipart/form-data
+```
+
+**Form Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `file` | binary | JPEG image frame |
+| `procedure_id` | string | Active procedure ID |
+| `user_id` | string | User identifier |
+
+**Response:** `202 Accepted` (no body)
+
+#### GET /stepnode/result
+
+Poll for the latest detection result.
+
+```
+GET /stepnode/result
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "sequence_id": 6,
+  "timestamp": 1735049000.123,
+  "model_version": "vqa_wrapper_v1",
+  "predictions": {"door_fully_open": 0.85, "rack_removed": 0.12},
+  "timings": {...},
+  "_buffer_metadata": {
+    "procedure_id": "proc_dishwasher",
+    "inference_ms": 147,
+    "processed_at": "2024-12-24T15:40:00Z"
+  }
+}
+```
+
+**HTTP Status Codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200 | Success, result returned |
+| 404 | No results available yet (first call before any inference) |
+| 408 | Timeout waiting for a new result |
+
+#### GET /stepnode/stats
+
+Get buffer statistics for monitoring.
+
+```
+GET /stepnode/stats
+```
+
+**Response:**
+
+```json
+{
+  "frames_written": 1234,
+  "frames_overwritten": 56,
+  "frames_processed": 1178,
+  "buffer_size": 1
+}
+```
+
+---
+
+### Async Architecture
+
+```mermaid
+sequenceDiagram
+    participant FS as Frame Source
+    participant NGS as NodeGraphService
+    participant AI as AI Node
+    
+    Note over NGS: Polling loop @ 5Hz
+    
+    FS->>NGS: Frame arrives
+    NGS->>AI: POST /stepnode/ingest (202)
+    
+    loop Every 200ms
+        NGS->>AI: GET /stepnode/result
+        AI-->>NGS: latest predictions
+        NGS->>NGS: evaluate_guards()
+    end
 ```
 
 ---

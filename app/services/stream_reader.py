@@ -25,6 +25,11 @@ class RtspStreamReader:
         # Quality Control
         self.rate_limiter = RateLimiter(fps=10.0)
         
+        # Timing instrumentation
+        self._frame_count = 0
+        self._fps_start_time = time.time()
+        self._last_frame_time = 0.0
+        
         # Capture the main event loop where the app is running
         try:
             self._main_loop = asyncio.get_running_loop()
@@ -80,6 +85,11 @@ class RtspStreamReader:
             # Set buffer size to minimal to avoid reading old frames
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             
+            # Reset FPS counters on connect
+            self._frame_count = 0
+            self._fps_start_time = time.time()
+            self._last_frame_time = time.time()
+            
             while self.running and not self._stop_event.is_set():
                 # Rate Limiting: Check if we should process this frame slot
                 if not self.rate_limiter.should_process():
@@ -106,8 +116,30 @@ class RtspStreamReader:
 
                 # Encode frame to JPEG
                 try:
+                    encode_start = time.time()
                     _, buffer = cv2.imencode('.jpg', frame)
                     frame_bytes = buffer.tobytes()
+                    encode_ms = (time.time() - encode_start) * 1000
+                    
+                    # Track FPS and timing
+                    now = time.time()
+                    frame_interval_ms = (now - self._last_frame_time) * 1000
+                    self._last_frame_time = now
+                    self._frame_count += 1
+                    
+                    # Log FPS every 30 frames
+                    if self._frame_count % 30 == 0:
+                        elapsed = now - self._fps_start_time
+                        actual_fps = self._frame_count / elapsed if elapsed > 0 else 0
+                        logger.info(
+                            f"[STREAM_READER] FPS: {actual_fps:.1f} "
+                            f"(frames={self._frame_count}, elapsed={elapsed:.1f}s)"
+                        )
+                    
+                    logger.debug(
+                        f"[STREAM_READER] Frame captured: interval={frame_interval_ms:.0f}ms, "
+                        f"encode={encode_ms:.1f}ms, size={len(frame_bytes)} bytes"
+                    )
                     
                     # Push to IngestService
                     # We run the async ingest_frame method on the MAIN loop

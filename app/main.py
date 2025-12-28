@@ -6,6 +6,7 @@ from app.config import VERBOSE_LOGGING
 from app.core.vlm_client import init_http_client, close_http_client
 from app.core.vlm_strategies.auki_local_vlm import close_websocket_connection
 from app.core.metrics import init_metrics_collector
+from app.core.nodegraph_client import get_nodegraph_client
 
 # ============================================================================
 # LOGGING CONFIGURATION
@@ -138,6 +139,11 @@ async def startup_event():
     # Run new architecture startup initialization
     await run_startup_initialization()
     
+    # Initialize NodeGraph client with connection pool
+    logger.info("Initializing NodeGraph client with connection pool...")
+    nodegraph_client = get_nodegraph_client()
+    await nodegraph_client.connect()
+    
     logger.info("Oneshot Copilot is ready to accept requests")
     logger.info("=" * 60)
 
@@ -150,6 +156,11 @@ async def shutdown_event():
     
     # Run new architecture shutdown cleanup
     await run_shutdown_cleanup()
+    
+    # Close NodeGraph client connection pool
+    logger.info("Closing NodeGraph client...")
+    nodegraph_client = get_nodegraph_client()
+    await nodegraph_client.disconnect()
     
     # Close singleton HTTP client
     logger.info("Closing HTTP client...")

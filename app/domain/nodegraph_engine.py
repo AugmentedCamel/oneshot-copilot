@@ -52,6 +52,8 @@ class NodeGraphDispatchNeeded(DomainEvent):
     procedure_id: str
     node_id: str
     target_classes: List[str]
+    excluded_candidates: List[str]
+    candidate_scope: List[str]  # Limit AI detection to only these classes
     idem_key: str
 
 
@@ -117,9 +119,15 @@ class NodeGraphEngine:
         """
         events = []
         
-        if session.inflight:
-            # Already processing a frame
-            return events
+        # Time-based throttle: allow max 5 fps (200ms between ingests)
+        # This replaces the old inflight blocking which waited for HTTP completion
+        # and was limiting us to ~1 fps.
+        MIN_INGEST_INTERVAL_MS = 200
+        if session.last_frame_at_ms is not None:
+            elapsed_ms = now_ms - session.last_frame_at_ms
+            if elapsed_ms < MIN_INGEST_INTERVAL_MS:
+                # Too soon since last ingest, skip this frame
+                return events
         
         node = session.get_current_node()
         if not node:
@@ -136,6 +144,10 @@ class NodeGraphEngine:
         # Get all classes to check for this node
         target_classes = session.procedure.get_all_target_classes(session.current_node_id)
         
+        # Get excluded candidates and candidate scope from cortex config
+        excluded_candidates = node.cortex_config.excluded_candidates if node.cortex_config else []
+        candidate_scope = node.cortex_config.candidate_scope if node.cortex_config else []
+        
         session.inflight = True
         session.inflight_frame_id = frame_id
         session.last_frame_at_ms = now_ms
@@ -146,6 +158,8 @@ class NodeGraphEngine:
             procedure_id=session.procedure.procedure_id,
             node_id=session.current_node_id,
             target_classes=target_classes,
+            excluded_candidates=excluded_candidates,
+            candidate_scope=candidate_scope,
             idem_key=frame_id
         ))
         

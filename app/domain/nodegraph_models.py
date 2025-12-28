@@ -30,6 +30,8 @@ class CortexConfig:
     min_confidence: float                          # Minimum confidence threshold (0.0-1.0)
     stability_frames: Optional[int] = None         # For VISUAL_STATE: consecutive frames required
     duration_threshold_seconds: Optional[float] = None  # For ACTION_DURATION: seconds required
+    excluded_candidates: List[str] = field(default_factory=list)  # Classes to exclude from AI scoring
+    candidate_scope: List[str] = field(default_factory=list)  # Limit AI detection to only these classes
 
 
 @dataclass
@@ -155,7 +157,9 @@ def nodegraph_from_json(data: Dict) -> NodeGraphProcedureDef:
                 verification_mode=VerificationMode(cortex_data.get("verification_mode", "VISUAL_STATE")),
                 min_confidence=cortex_data.get("min_confidence", 0.8),
                 stability_frames=cortex_data.get("stability_frames"),
-                duration_threshold_seconds=cortex_data.get("duration_threshold_seconds")
+                duration_threshold_seconds=cortex_data.get("duration_threshold_seconds"),
+                excluded_candidates=cortex_data.get("excluded_candidates", []),
+                candidate_scope=cortex_data.get("candidate_scope", [])
             )
         
         # Parse transitions (optional for FINAL nodes)

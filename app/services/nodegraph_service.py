@@ -21,8 +21,22 @@ from app.services.ingest_service import ingest_service
 from app.services.status_service import save_user_status
 from app.core.event_bus import event_bus
 from app.core.frame_store import get_frame
-from app.core.nodegraph_client import dispatch_to_nodegraph_ai
+from app.core.nodegraph_client import (
+    dispatch_to_nodegraph_ai,
+    ingest_frame_async,
+    poll_latest_result,
+    StepNodeResult
+)
 from app.config import settings
+
+# Polling interval for async mode (5Hz = 200ms)
+POLL_INTERVAL_SECONDS = 0.2
+
+# Hard cap on frame ingestion rate (5 FPS = 200ms minimum between frames)
+MIN_INGEST_INTERVAL_SECONDS = 0.2
+
+# Max concurrent in-flight ingestion requests (backpressure limit)
+MAX_CONCURRENT_INGESTS = 2
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +53,21 @@ class NodeGraphProcedureService:
     def __init__(self):
         self._active_sessions: Dict[str, NodeGraphSession] = {}  # username -> session
         self._user_sources: Dict[str, str] = {}  # username -> source_id
+        self._polling_tasks: Dict[str, asyncio.Task] = {}  # username -> polling task
+        self._last_sequence_ids: Dict[str, int] = {}  # username -> last processed seq_id
+        self._last_ingest_time: Dict[str, float] = {}  # username -> last ingest timestamp (5 FPS throttle)
+        self._ingest_semaphore = asyncio.Semaphore(MAX_CONCURRENT_INGESTS)  # Backpressure limit
+        
+        # Timing instrumentation
+        self._stats = {
+            "frames_received": 0,
+            "frames_dispatched": 0,
+            "frames_throttled": 0,
+            "frames_backpressured": 0,
+            "total_http_time_ms": 0,
+            "start_time": time.time()
+        }
+        self._last_frame_event_time = 0.0
         
         # Initialize engine and strategy
         self.engine = NodeGraphEngine()
@@ -118,6 +147,12 @@ class NodeGraphProcedureService:
         self._active_sessions[username] = session
         self._save_session_status(session)
         
+        # Start polling loop for async result fetching
+        self._last_sequence_ids[username] = -1
+        polling_task = asyncio.create_task(self._polling_loop(username))
+        self._polling_tasks[username] = polling_task
+        logger.info(f"[NODEGRAPH_SERVICE] Started polling loop for {username}")
+        
         # Log events to strategy
         for event in events:
             await self.strategy.log_event(external_session_id, event)
@@ -142,6 +177,20 @@ class NodeGraphProcedureService:
         
         session = self._active_sessions[username]
         
+        # Cancel polling task - don't await to avoid blocking on in-flight HTTP requests
+        if username in self._polling_tasks:
+            task = self._polling_tasks[username]
+            task.cancel()
+            # Don't await the task - the HTTP request inside poll_latest_result 
+            # may take up to 1s to complete, blocking this stop request.
+            # The task cleanup will happen asynchronously.
+            del self._polling_tasks[username]
+            logger.info(f"[NODEGRAPH_SERVICE] Cancelled polling loop for {username}")
+        
+        # Clean up sequence tracking
+        if username in self._last_sequence_ids:
+            del self._last_sequence_ids[username]
+        
         # Close external session
         if session.external_session_id:
             try:
@@ -165,6 +214,12 @@ class NodeGraphProcedureService:
         if not frame:
             return
         
+        # Timing instrumentation
+        now = time.time()
+        frame_interval_ms = (now - self._last_frame_event_time) * 1000 if self._last_frame_event_time > 0 else 0
+        self._last_frame_event_time = now
+        self._stats["frames_received"] += 1
+        
         source_id = frame.source_id
         
         # Find users interested in this source
@@ -176,86 +231,191 @@ class NodeGraphProcedureService:
             if username in self._active_sessions:
                 session = self._active_sessions[username]
                 
-                # Ingest frame
+                # Ingest frame into engine (for state tracking)
                 events = self.engine.ingest_frame(session, frame.id, now_ms)
                 
-                # Process events
+                # Process events - for async mode we just fire-and-forget the frame
                 for e in events:
                     if isinstance(e, NodeGraphDispatchNeeded):
-                        # Handle AI dispatch synchronously
-                        asyncio.create_task(self._handle_ai_dispatch(session, e))
+                        # Async mode: submit frame without waiting for response
+                        asyncio.create_task(self._ingest_frame_async(session, e))
     
-    async def _handle_ai_dispatch(
-        self, 
-        session: NodeGraphSession, 
+    async def _ingest_frame_async(
+        self,
+        session: NodeGraphSession,
         event: NodeGraphDispatchNeeded
     ) -> None:
-        """Execute AI dispatch and process predictions."""
+        """Submit frame to AI node asynchronously (fire-and-forget)."""
+        # Backpressure: skip frame if too many requests in flight
+        if self._ingest_semaphore.locked():
+            self._stats["frames_backpressured"] += 1
+            logger.info(
+                f"[NODEGRAPH_SERVICE] Backpressure: skipping frame for {session.username} "
+                f"(max {MAX_CONCURRENT_INGESTS} concurrent, skipped={self._stats['frames_backpressured']})"
+            )
+            return
+        
+        async with self._ingest_semaphore:
+            await self._do_ingest_frame(session, event)
+    
+    async def _do_ingest_frame(
+        self,
+        session: NodeGraphSession,
+        event: NodeGraphDispatchNeeded
+    ) -> None:
+        """Internal: actually perform the frame ingestion (guarded by semaphore)."""
         try:
+            # 5 FPS throttle: skip if last ingest was less than 200ms ago
+            now = time.time()
+            last_ingest = self._last_ingest_time.get(session.username, 0)
+            elapsed = now - last_ingest
+            
+            if elapsed < MIN_INGEST_INTERVAL_SECONDS:
+                self._stats["frames_throttled"] += 1
+                logger.info(
+                    f"[NODEGRAPH_SERVICE] Throttled frame for {session.username}: "
+                    f"elapsed={elapsed*1000:.0f}ms < {MIN_INGEST_INTERVAL_SECONDS*1000:.0f}ms "
+                    f"(throttled={self._stats['frames_throttled']})"
+                )
+                return
+            
+            # Update last ingest time
+            self._last_ingest_time[session.username] = now
+            
             # Get frame bytes
             frame_bytes = get_frame(event.frame_id)
             if not frame_bytes:
                 logger.error(f"[NODEGRAPH_SERVICE] Frame {event.frame_id} not found")
-                session.inflight = False
                 return
             
             logger.debug(
-                f"[NODEGRAPH_SERVICE] Dispatching AI for {session.username}, "
+                f"[NODEGRAPH_SERVICE] Ingesting frame async for {session.username}, "
                 f"frame {event.frame_id}, classes={event.target_classes}"
             )
             
-            # Call AI service (synchronous wait for response)
-            predictions = await dispatch_to_nodegraph_ai(
+            # Submit frame (non-blocking) with timing
+            http_start = time.time()
+            success = await ingest_frame_async(
                 frame_bytes=frame_bytes,
-                user_id=session.username,
-                frame_id=event.frame_id,
                 procedure_id=event.procedure_id,
-                target_classes=event.target_classes
+                user_id=session.username,
+                target_classes=event.target_classes,
+                excluded_candidates=event.excluded_candidates,
+                candidate_scope=event.candidate_scope
+            )
+            http_elapsed_ms = (time.time() - http_start) * 1000
+            self._stats["total_http_time_ms"] += http_elapsed_ms
+            self._stats["frames_dispatched"] += 1
+            
+            # Calculate effective FPS
+            total_elapsed = time.time() - self._stats["start_time"]
+            effective_fps = self._stats["frames_dispatched"] / total_elapsed if total_elapsed > 0 else 0
+            avg_http_ms = self._stats["total_http_time_ms"] / self._stats["frames_dispatched"]
+            
+            logger.info(
+                f"[NODEGRAPH_SERVICE] Frame dispatched for {session.username}: "
+                f"http={http_elapsed_ms:.0f}ms, avg_http={avg_http_ms:.0f}ms, "
+                f"effective_fps={effective_fps:.1f}, "
+                f"dispatched={self._stats['frames_dispatched']}, "
+                f"throttled={self._stats['frames_throttled']}, "
+                f"backpressured={self._stats['frames_backpressured']}"
             )
             
-            # Evaluate guards and get resulting events
-            now_ms = int(time.time() * 1000)
-            events = self.engine.evaluate_guards(session, predictions, now_ms)
-            
-            # Process events
-            for e in events:
-                # Log to strategy
-                if session.external_session_id:
-                    await self.strategy.log_event(session.external_session_id, e)
-                
-                if isinstance(e, NodeGraphCompletedEvent):
-                    logger.info(
-                        f"[NODEGRAPH_SERVICE] Procedure {e.procedure_id} "
-                        f"completed for {session.username}"
-                    )
-                    # Close session
-                    if session.external_session_id:
-                        try:
-                            await self.strategy.close_session(session.external_session_id)
-                        except Exception as ex:
-                            logger.error(f"Failed to close session: {ex}")
-                    
-                    # Remove from active
-                    if session.username in self._active_sessions:
-                        del self._active_sessions[session.username]
-                
-                elif isinstance(e, NodeGraphTransitionEvent):
-                    logger.info(
-                        f"[NODEGRAPH_SERVICE] Transition: {e.from_node} -> {e.to_node}"
-                    )
-                
-                elif isinstance(e, NodeGraphErrorEvent):
-                    logger.warning(
-                        f"[NODEGRAPH_SERVICE] Error: {e.error_class} - {e.message}"
-                    )
-                    # TODO: Send feedback to user
-            
-            # Save session status
-            self._save_session_status(session)
+            if not success:
+                logger.warning(f"[NODEGRAPH_SERVICE] Frame ingest failed for {session.username}")
             
         except Exception as e:
-            logger.error(f"[NODEGRAPH_SERVICE] AI dispatch failed: {e}", exc_info=True)
-            session.inflight = False
+            logger.error(f"[NODEGRAPH_SERVICE] Frame ingest error: {e}", exc_info=True)
+    
+    async def _polling_loop(self, username: str) -> None:
+        """Background polling loop for fetching AI results at 5Hz."""
+        logger.info(f"[NODEGRAPH_SERVICE] Polling loop started for {username}")
+        
+        try:
+            while True:
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                
+                # Check if session still exists
+                if username not in self._active_sessions:
+                    logger.info(f"[NODEGRAPH_SERVICE] Session gone, stopping poll for {username}")
+                    break
+                
+                session = self._active_sessions[username]
+                
+                # Poll for latest result
+                result = await poll_latest_result()
+                
+                if result is None:
+                    # No result available yet or timeout
+                    continue
+                
+                # Check if this is a new result (different sequence_id)
+                last_seq = self._last_sequence_ids.get(username, -1)
+                if result.sequence_id <= last_seq:
+                    # Already processed this result
+                    continue
+                
+                # New result! Update sequence tracker
+                self._last_sequence_ids[username] = result.sequence_id
+                
+                logger.debug(
+                    f"[NODEGRAPH_SERVICE] New result for {username}: "
+                    f"seq={result.sequence_id}, predictions={result.predictions}"
+                )
+                
+                # Evaluate guards with the predictions
+                now_ms = int(time.time() * 1000)
+                events = self.engine.evaluate_guards(session, result.predictions, now_ms)
+                
+                # Process events
+                await self._process_engine_events(session, events)
+                
+        except asyncio.CancelledError:
+            logger.info(f"[NODEGRAPH_SERVICE] Polling loop cancelled for {username}")
+            raise
+        except Exception as e:
+            logger.error(f"[NODEGRAPH_SERVICE] Polling loop error for {username}: {e}", exc_info=True)
+    
+    async def _process_engine_events(
+        self,
+        session: NodeGraphSession,
+        events: List
+    ) -> None:
+        """Process events from the engine (shared by polling and legacy dispatch)."""
+        for e in events:
+            # Log to strategy
+            if session.external_session_id:
+                await self.strategy.log_event(session.external_session_id, e)
+            
+            if isinstance(e, NodeGraphCompletedEvent):
+                logger.info(
+                    f"[NODEGRAPH_SERVICE] Procedure {e.procedure_id} "
+                    f"completed for {session.username}"
+                )
+                # Close session
+                if session.external_session_id:
+                    try:
+                        await self.strategy.close_session(session.external_session_id)
+                    except Exception as ex:
+                        logger.error(f"Failed to close session: {ex}")
+                
+                # Remove from active (this will also stop the polling loop)
+                if session.username in self._active_sessions:
+                    del self._active_sessions[session.username]
+            
+            elif isinstance(e, NodeGraphTransitionEvent):
+                logger.info(
+                    f"[NODEGRAPH_SERVICE] Transition: {e.from_node} -> {e.to_node}"
+                )
+            
+            elif isinstance(e, NodeGraphErrorEvent):
+                logger.warning(
+                    f"[NODEGRAPH_SERVICE] Error: {e.error_class} - {e.message}"
+                )
+                # TODO: Send feedback to user
+        
+        # Save session status
+        self._save_session_status(session)
     
     def _save_session_status(self, session: NodeGraphSession) -> None:
         """Save session status for persistence."""

@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 class IngestService:
     def __init__(self):
         self._sources: Dict[str, Source] = {}
+        # Timing instrumentation
+        self._frame_count = 0
+        self._fps_start_time = time.time()
+        self._last_ingest_time = 0.0
 
     def register_source(self, source: Source):
         self._sources[source.id] = source
@@ -51,7 +55,22 @@ class IngestService:
         )
         
         await event_bus.publish(event)
-        logger.debug(f"Ingested frame {frame_id} from source {source_id}")
+        
+        # Timing instrumentation
+        now = time.time()
+        frame_interval_ms = (now - self._last_ingest_time) * 1000 if self._last_ingest_time > 0 else 0
+        self._last_ingest_time = now
+        self._frame_count += 1
+        
+        # Calculate actual FPS
+        elapsed = now - self._fps_start_time
+        actual_fps = self._frame_count / elapsed if elapsed > 0 else 0
+        
+        logger.info(
+            f"[INGEST_SERVICE] Frame {frame_id[:8]}... ingested: "
+            f"interval={frame_interval_ms:.0f}ms, fps={actual_fps:.1f}, "
+            f"total_frames={self._frame_count}"
+        )
 
 # Global instance
 ingest_service = IngestService()
