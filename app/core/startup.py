@@ -29,17 +29,19 @@ async def run_startup_initialization():
     except Exception as e:
         logger.error(f"Failed to initialize AudioAnalyzer models: {e}")
 
-    # 1. Register Default RTSP Source if configured
+    # 1. Register Default Stream Source if configured (RTSP or RTMP)
     if settings.RTSP_STREAM_URL:
-        logger.info(f"Found RTSP stream configuration: {settings.RTSP_STREAM_URL}")
+        # Auto-detect protocol from URL
+        protocol = "rtsp" if settings.RTSP_STREAM_URL.startswith("rtsp://") else "rtmp"
+        logger.info(f"Found {protocol.upper()} stream configuration: {settings.RTSP_STREAM_URL}")
         
         source_id = settings.STREAM_USERNAME or "default_camera"
         
         source = Source(
             id=source_id,
-            name="Default RTSP Camera",
+            name=f"Default {protocol.upper()} Camera",
             type="camera",
-            ingest_type="rtsp",
+            ingest_type=protocol,
             config={"url": settings.RTSP_STREAM_URL}
         )
         

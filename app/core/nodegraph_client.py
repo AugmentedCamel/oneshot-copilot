@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 import httpx
 
 from app.config import settings
+from app.core.aspect_ratio import normalize_to_landscape_aspect_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,12 @@ class NodeGraphClient:
             True if frame was accepted (202), False otherwise
         """
         client = await self._ensure_connected()
+        
+        # ==============================================================
+        # ASPECT RATIO NORMALIZATION: AI model trained on 16:9 landscape
+        # See app/core/aspect_ratio.py for full documentation
+        # ==============================================================
+        frame_bytes = normalize_to_landscape_aspect_ratio(frame_bytes)
         
         logger.debug(
             f"[NODEGRAPH_CLIENT] Ingesting frame async for {user_id}, "
@@ -224,6 +231,12 @@ class NodeGraphClient:
             Dict mapping class names to confidence scores (0.0-1.0)
         """
         client = await self._ensure_connected()
+        
+        # ==============================================================
+        # ASPECT RATIO NORMALIZATION: AI model trained on 16:9 landscape
+        # See app/core/aspect_ratio.py for full documentation
+        # ==============================================================
+        frame_bytes = normalize_to_landscape_aspect_ratio(frame_bytes)
         
         logger.debug(
             f"[NODEGRAPH_CLIENT] Sending request for user {user_id}, "

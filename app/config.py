@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     AI_NODE_URL: str = "http://localhost:8080"  # Local AI reasoning node URL
     
     RTSP_STREAM_URL: str = ""  # Optional RTSP/RTMP stream URL, empty = disabled
+    STREAM_PROTOCOL: str = "rtsp"  # Options: "rtsp", "rtmp" - auto-detected from URL if not set
     STREAM_USERNAME: str = "stream_user"  # Username for stream-ingested frames
     MAX_FRAMES_PER_USER: int = 10
     SAVE_FRAMES_TO_DISK: bool = False  # Save frames to disk for debugging/verification
