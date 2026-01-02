@@ -1,6 +1,7 @@
 import logging
 import json
-from typing import Any, Dict
+import os
+from typing import Any, Dict, List
 from app.domain.interfaces import ProcedureStrategy
 from app.domain.events import VLMResponseReceived, StepProgressed, ProcedureCompleted, VLMDispatchNeeded
 from app.models.procedure import load_procedure, procedure_from_json
@@ -30,6 +31,28 @@ class LocalFileProcedureStrategy(ProcedureStrategy):
 
     async def close_session(self, session_id: str) -> None:
         pass
+    
+    async def list_available_procedures(self) -> List[Dict[str, Any]]:
+        """List all available local procedures by scanning the procedures directory."""
+        procedures_dir = "app/data/procedures"
+        result = []
+        
+        try:
+            for filename in os.listdir(procedures_dir):
+                if filename.endswith(".json"):
+                    procedure_id = filename.replace(".json", "")
+                    filepath = os.path.join(procedures_dir, filename)
+                    try:
+                        with open(filepath, "r") as f:
+                            data = json.load(f)
+                            title = data.get("title", procedure_id)
+                            result.append({"procedure_id": procedure_id, "title": title})
+                    except Exception as e:
+                        logger.warning(f"Could not read procedure file {filename}: {e}")
+        except FileNotFoundError:
+            logger.warning(f"Procedures directory not found: {procedures_dir}")
+        
+        return result
 
 
 class MemoryBasedProcedureStrategy(ProcedureStrategy):
@@ -121,3 +144,10 @@ class MemoryBasedProcedureStrategy(ProcedureStrategy):
     async def close_session(self, session_id: str) -> None:
         logger.info(f"Closing memory session {session_id}")
         await self.client.close_session(session_id)
+    
+    async def list_available_procedures(self) -> List[Dict[str, Any]]:
+        """List available procedures from the Memory Service."""
+        # This strategy doesn't support the knowledge graph listing
+        # Return empty list - clients should use nodegraph strategy for discovery
+        logger.warning("MemoryBasedProcedureStrategy does not support listing procedures")
+        return []

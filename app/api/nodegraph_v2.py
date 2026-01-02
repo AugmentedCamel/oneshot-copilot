@@ -123,3 +123,40 @@ async def get_nodegraph_debug():
         return service.get_debug_state()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/nodegraph/available")
+async def list_available_procedures():
+    """List all available knowledge graph procedures.
+    
+    Returns a list of procedures that can be started with the current
+    nodegraph strategy. Use these procedure_id values with the /start endpoint.
+    """
+    if settings.PROCEDURE_STRATEGY != "nodegraph":
+        raise HTTPException(
+            status_code=400, 
+            detail="Node graph strategy is not enabled. Set PROCEDURE_STRATEGY=nodegraph"
+        )
+    
+    try:
+        from app.services.nodegraph_strategy import NodeGraphProcedureStrategy
+        from app.services.memory_service_client import MemoryServiceClient
+        
+        memory_client = MemoryServiceClient(settings.MEMORY_SERVICE_URL)
+        strategy = NodeGraphProcedureStrategy(memory_client)
+        
+        procedures = await strategy.list_available_procedures()
+        
+        return {
+            "strategy": "nodegraph",
+            "procedures": procedures
+        }
+    except Exception as e:
+        # Check if it's a connection error to memory service
+        error_msg = str(e)
+        if "ConnectError" in error_msg or "Connection refused" in error_msg:
+            raise HTTPException(
+                status_code=503, 
+                detail=f"Memory Service unavailable at {settings.MEMORY_SERVICE_URL}"
+            )
+        raise HTTPException(status_code=500, detail=str(e))

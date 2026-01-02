@@ -53,7 +53,45 @@ STREAM_USERNAME=glasses_user_001
 
 ---
 
-## 2. Starting a Procedure
+## 2. Discovering Available Procedures
+
+Before starting a procedure, you can query which procedures are available on the server.
+
+### HTTP Request
+
+```
+GET http://copilot:8000/api/v2/procedures/nodegraph/available
+```
+
+### Response
+
+```json
+{
+  "strategy": "nodegraph",
+  "procedures": [
+    {
+      "procedure_id": "proc_refill_dishwasher_salt",
+      "title": "Refill Dishwasher Salt"
+    },
+    {
+      "procedure_id": "proc_change_tire",
+      "title": "Change a Flat Tire"
+    }
+  ]
+}
+```
+
+### Usage
+
+1. Call this endpoint on app startup or when the user opens a "procedure picker" UI
+2. Display the `title` to the user
+3. Use the corresponding `procedure_id` when calling the `/start` endpoint
+
+> ⚠️ This endpoint only returns procedures compatible with the current strategy. If `PROCEDURE_STRATEGY=nodegraph`, only knowledge graph procedures are returned.
+
+---
+
+## 3. Starting a Procedure
 
 When the user wants to begin a guided task (e.g., "Refill Dishwasher Salt"):
 
@@ -65,9 +103,33 @@ Content-Type: application/json
 
 {
   "username": "glasses_user_001",
-  "procedure_id": "proc_refill_dishwasher_salt"
+  "procedure_id": "proc_refill_dishwasher_salt",
+  "source_id": "glasses_stream_001"
 }
 ```
+
+### Request Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `username` | Yes | Unique identifier for the user |
+| `procedure_id` | Yes | ID of the procedure to start (from `/available` endpoint) |
+| `source_id` | **Yes for new sessions** | The stream source ID registered when connecting your video stream |
+
+> ⚠️ **Important:** The `source_id` is **required** when starting a procedure for the first time for a user. This links the user's session to the correct video stream. If omitted for a new session, you'll receive a `400 Bad Request` error:
+> ```json
+> {"detail": "Source ID is required for new session"}
+> ```
+
+### How to get a `source_id`
+
+The `source_id` is automatically registered when your video stream connects to the copilot server. Common patterns:
+
+1. **Use the stream key** - If your RTMP stream URL is `rtmp://copilot/live/glasses_stream_001`, then `glasses_stream_001` is your source_id
+2. **Match your username** - Configure the same identifier for both stream and username for simplicity
+3. **Check server logs** - When a stream connects, the server logs: `[INGEST] Registered source: <source_id>`
+
+> 💡 **Tip:** Once a `source_id` is associated with a user, subsequent `/start` calls for the same user can omit it—the server remembers the mapping.
 
 ### Response
 
@@ -92,7 +154,7 @@ Content-Type: application/json
 
 ---
 
-## 3. Polling for Progress
+## 4. Polling for Progress
 
 Once a procedure is started, poll the status endpoint to get the current step and display it to the user.
 
@@ -148,7 +210,7 @@ GET http://copilot:8000/api/v2/status?camera_id=glasses_user_001
 
 ---
 
-## 4. Stopping a Procedure
+## 5. Stopping a Procedure
 
 User cancels or procedure auto-completes:
 
@@ -176,7 +238,7 @@ Content-Type: application/json
 
 ---
 
-## 5. Detailed Progress (Optional)
+## 6. Detailed Progress (Optional)
 
 For debugging or a detailed progress view:
 
@@ -213,7 +275,7 @@ GET http://copilot:8000/api/v2/procedures/nodegraph/status/glasses_user_001
 
 ---
 
-## 6. Asking Questions (Agent Assist)
+## 7. Asking Questions (Agent Assist)
 
 User can ask questions mid-procedure:
 
@@ -305,11 +367,16 @@ import asyncio
 COPILOT_URL = "http://copilot-server:8000"
 USERNAME = "glasses_user_001"
 
-async def start_procedure(procedure_id: str):
+SOURCE_ID = "glasses_stream_001"  # Your registered stream source
+
+async def start_procedure(procedure_id: str, source_id: str = None):
     async with httpx.AsyncClient() as client:
+        payload = {"username": USERNAME, "procedure_id": procedure_id}
+        if source_id:
+            payload["source_id"] = source_id
         response = await client.post(
             f"{COPILOT_URL}/api/v2/procedures/nodegraph/start",
-            json={"username": USERNAME, "procedure_id": procedure_id}
+            json=payload
         )
         return response.json()
 
@@ -329,10 +396,10 @@ async def stop_procedure():
         )
         return response.json()
 
-async def run_procedure(procedure_id: str):
-    # 1. Start
-    result = await start_procedure(procedure_id)
-    print(f"Started: {result['initial_node']['title']}")
+async def run_procedure(procedure_id: str, source_id: str = None):
+    # 1. Start (include source_id for first time users)
+    result = await start_procedure(procedure_id, source_id)
+    print(f\"Started: {result['initial_node']['title']}\")
     
     # 2. Poll loop
     while True:
@@ -351,8 +418,8 @@ async def run_procedure(procedure_id: str):
             print("⏹️ Procedure stopped")
             break
 
-# Run
-asyncio.run(run_procedure("proc_refill_dishwasher_salt"))
+# Run (include SOURCE_ID for first-time users)
+asyncio.run(run_procedure("proc_refill_dishwasher_salt", SOURCE_ID))
 ```
 
 ---
@@ -362,7 +429,7 @@ asyncio.run(run_procedure("proc_refill_dishwasher_salt"))
 | HTTP Code | Meaning | What to do |
 |-----------|---------|------------|
 | `200` | Success | Process response |
-| `400` | Bad request | Check procedure_id exists |
+| `400` | Bad request | Check: (1) procedure_id exists, (2) source_id provided for new sessions |
 | `404` | User/procedure not found | Start a procedure first |
 | `500` | Server error | Retry or alert user |
 

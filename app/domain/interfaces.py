@@ -47,3 +47,8 @@ class ProcedureStrategy(ABC):
     async def close_session(self, session_id: str) -> None:
         """Close the session."""
         pass
+    
+    @abstractmethod
+    async def list_available_procedures(self) -> List[Dict[str, Any]]:
+        """List all available procedures for this strategy."""
+        pass

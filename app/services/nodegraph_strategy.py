@@ -4,7 +4,7 @@ This strategy loads node graph procedures from the Memory Service
 and manages session state for state machine-based procedure execution.
 """
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from app.domain.interfaces import ProcedureStrategy
 from app.domain.nodegraph_models import (
@@ -150,4 +150,31 @@ class NodeGraphProcedureStrategy(ProcedureStrategy):
             await self.client.close_session(session_id)
         except Exception as e:
             logger.error(f"[NODEGRAPH_STRATEGY] Failed to close session: {e}")
+            raise
+    
+    async def list_available_procedures(self) -> List[Dict[str, Any]]:
+        """List all available knowledge graph procedures from Memory Service.
+        
+        Returns:
+            List of procedures with procedure_id and title
+        """
+        logger.info("[NODEGRAPH_STRATEGY] Listing available procedures")
+        
+        try:
+            procedures = await self.client.list_knowledge_graphs()
+            
+            # Return simplified list with just procedure_id and title
+            result = [
+                {
+                    "procedure_id": proc.get("procedure_id"),
+                    "title": proc.get("title")
+                }
+                for proc in procedures
+            ]
+            
+            logger.info(f"[NODEGRAPH_STRATEGY] Found {len(result)} available procedures")
+            return result
+            
+        except Exception as e:
+            logger.error(f"[NODEGRAPH_STRATEGY] Failed to list procedures: {e}")
             raise

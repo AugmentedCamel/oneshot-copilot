@@ -1,12 +1,28 @@
 import logging
 import httpx
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
 class MemoryServiceClient:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip('/')
+    
+    async def list_knowledge_graphs(self) -> List[Dict[str, Any]]:
+        """Fetch all available knowledge graph procedures.
+        
+        Returns:
+            List of procedures with id, procedure_id, title, object_id
+        """
+        url = f"{self.base_url}/knowledge-graph/"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, timeout=5.0)
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.error(f"Failed to list knowledge graphs: {e}")
+            raise
 
     async def create_session(self, username: str, procedure_id: str, source_id: str) -> str:
         """Start a new session in Memory Service."""
