@@ -105,6 +105,11 @@ from app.api import harvester
 app.include_router(harvester.router, prefix="/api/v2", tags=["Data Harvester"])
 logger.debug("Registered Data Harvester router at /api/v2")
 
+# Procedure Control (Manual Testing)
+from app.api import procedure_control
+app.include_router(procedure_control.router, prefix="/api/v2/procedures", tags=["Procedure Control"])
+logger.debug("Registered Procedure Control router at /api/v2/procedures")
+
 logger.info("All API routers registered successfully")
 
 # Initialize new services

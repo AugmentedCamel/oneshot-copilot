@@ -317,7 +317,40 @@ MEMORY_SERVICE_URL=http://localhost:8040
 | `/api/v2/procedures/nodegraph/status/{username}` | GET | Get current node status |
 | `/api/v2/procedures/nodegraph/debug` | GET | Debug all active sessions |
 
----
+### Control API (Manual Testing)
+
+These endpoints allow manual control over procedure progression, useful for testing:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v2/procedures/nodegraph/control/auto_progress` | POST | Toggle AI-driven auto progression |
+| `/api/v2/procedures/nodegraph/control/next` | POST | Force advance to next node |
+| `/api/v2/procedures/nodegraph/control/prev` | POST | Return to previous node |
+| `/api/v2/procedures/nodegraph/control/status` | GET | Get control state |
+
+**Example Usage:**
+
+```bash
+# Disable auto-progression
+curl -X POST http://localhost:8000/api/v2/procedures/nodegraph/control/auto_progress \
+  -H "Content-Type: application/json" \
+  -d '{"username": "test_user", "enabled": false}'
+
+# Force next step
+curl -X POST http://localhost:8000/api/v2/procedures/nodegraph/control/next \
+  -H "Content-Type: application/json" \
+  -d '{"username": "test_user"}'
+```
+
+> [!IMPORTANT]
+> **Extensibility Note:** When implementing new procedure strategies, add control 
+> support by implementing these methods in your service:
+> - `set_auto_progress(username, enabled)` - Toggle AI-driven progression
+> - `force_next_node(username)` - Advance to next step
+> - `force_prev_node(username)` - Return to previous step  
+> - `get_control_status(username)` - Get control state
+>
+> See `app/services/nodegraph_service.py` for reference implementation.
 
 ## Session State
 

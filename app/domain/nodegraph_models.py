@@ -115,6 +115,9 @@ class NodeGraphSession:
     inflight: bool = False                        # Is there a pending AI request?
     inflight_frame_id: Optional[str] = None       # Frame being processed
     last_frame_at_ms: Optional[int] = None        # Last frame timestamp
+    # Control API fields
+    auto_progress_enabled: bool = True            # When False, AI predictions don't trigger transitions
+    visited_nodes: List[str] = field(default_factory=list)  # History of visited node IDs for "prev" navigation
 
     def get_current_node(self) -> Optional[NodeDef]:
         """Get the current node definition."""

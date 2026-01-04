@@ -208,6 +208,122 @@ class NodeGraphProcedureService:
         """Get the active session for a user."""
         return self._active_sessions.get(username)
     
+    # ========================
+    # Control API Methods
+    # ========================
+    
+    def set_auto_progress(self, username: str, enabled: bool) -> bool:
+        """Toggle AI-driven auto progression for a user's session.
+        
+        Args:
+            username: The user whose session to modify
+            enabled: Whether auto-progression should be enabled
+            
+        Returns:
+            True if session was found and updated, False otherwise
+        """
+        session = self._active_sessions.get(username)
+        if not session:
+            return False
+        
+        session.auto_progress_enabled = enabled
+        logger.info(f"[NODEGRAPH_SERVICE] Auto-progress {'enabled' if enabled else 'disabled'} for {username}")
+        self._save_session_status(session)
+        return True
+    
+    async def force_next_node(self, username: str) -> Optional[Dict]:
+        """Force advance to the next node (on_success transition).
+        
+        Args:
+            username: The user whose session to advance
+            
+        Returns:
+            Dict with new node info, or None if no session/no next node
+        """
+        session = self._active_sessions.get(username)
+        if not session:
+            return None
+        
+        node = session.get_current_node()
+        if not node:
+            return None
+        
+        # Check if there's a next node
+        if not node.transitions or not node.transitions.on_success:
+            logger.warning(f"[NODEGRAPH_SERVICE] No on_success transition for node {node.id}")
+            return None
+        
+        next_node_id = node.transitions.on_success
+        
+        # Record current node in history before transitioning
+        session.visited_nodes.append(session.current_node_id)
+        
+        # Execute transition using engine
+        now_ms = int(time.time() * 1000)
+        events = self.engine._execute_transition(session, next_node_id, "manual_next", now_ms)
+        
+        # Process events
+        await self._process_engine_events(session, events)
+        
+        logger.info(f"[NODEGRAPH_SERVICE] Forced next: {node.id} -> {next_node_id} for {username}")
+        return self.engine.get_current_ui(session)
+    
+    async def force_prev_node(self, username: str) -> Optional[Dict]:
+        """Return to the previous node from history.
+        
+        Args:
+            username: The user whose session to revert
+            
+        Returns:
+            Dict with new node info, or None if no session/no history
+        """
+        session = self._active_sessions.get(username)
+        if not session:
+            return None
+        
+        # Check if there's history to go back to
+        if not session.visited_nodes:
+            logger.warning(f"[NODEGRAPH_SERVICE] No history to go back to for {username}")
+            return None
+        
+        # Pop the last visited node
+        prev_node_id = session.visited_nodes.pop()
+        current_node_id = session.current_node_id
+        
+        # Execute transition using engine
+        now_ms = int(time.time() * 1000)
+        events = self.engine._execute_transition(session, prev_node_id, "manual_prev", now_ms)
+        
+        # Process events
+        await self._process_engine_events(session, events)
+        
+        logger.info(f"[NODEGRAPH_SERVICE] Forced prev: {current_node_id} -> {prev_node_id} for {username}")
+        return self.engine.get_current_ui(session)
+    
+    def get_control_status(self, username: str) -> Optional[Dict]:
+        """Get the current control state for a user's session.
+        
+        Args:
+            username: The user to query
+            
+        Returns:
+            Dict with control state, or None if no session
+        """
+        session = self._active_sessions.get(username)
+        if not session:
+            return None
+        
+        node = session.get_current_node()
+        return {
+            "username": username,
+            "auto_progress_enabled": session.auto_progress_enabled,
+            "current_node_id": session.current_node_id,
+            "current_node_title": node.ui.title if node else "",
+            "visited_nodes_count": len(session.visited_nodes),
+            "can_go_prev": len(session.visited_nodes) > 0,
+            "can_go_next": node.transitions.on_success is not None if node and node.transitions else False
+        }
+    
     async def _on_frame_created(self, event: Event) -> None:
         """Handle new frame ingestion."""
         frame: Frame = event.payload.get("frame")
@@ -363,12 +479,15 @@ class NodeGraphProcedureService:
                     f"seq={result.sequence_id}, predictions={result.predictions}"
                 )
                 
-                # Evaluate guards with the predictions
-                now_ms = int(time.time() * 1000)
-                events = self.engine.evaluate_guards(session, result.predictions, now_ms)
-                
-                # Process events
-                await self._process_engine_events(session, events)
+                # Evaluate guards with the predictions (only if auto_progress enabled)
+                if session.auto_progress_enabled:
+                    now_ms = int(time.time() * 1000)
+                    events = self.engine.evaluate_guards(session, result.predictions, now_ms)
+                    
+                    # Process events
+                    await self._process_engine_events(session, events)
+                else:
+                    logger.debug(f"[NODEGRAPH_SERVICE] Auto-progress disabled for {username}, skipping guard evaluation")
                 
         except asyncio.CancelledError:
             logger.info(f"[NODEGRAPH_SERVICE] Polling loop cancelled for {username}")
@@ -444,7 +563,9 @@ class NodeGraphProcedureService:
                 "current_node_title": node.ui.title if node else "",
                 "validation_buffer": session.validation_buffer,
                 "action_timer_start": session.action_timer_start,
-                "inflight": session.inflight
+                "inflight": session.inflight,
+                "auto_progress_enabled": session.auto_progress_enabled,
+                "visited_nodes_count": len(session.visited_nodes)
             }
         
         return {
