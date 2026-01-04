@@ -110,6 +110,11 @@ from app.api import procedure_control
 app.include_router(procedure_control.router, prefix="/api/v2/procedures", tags=["Procedure Control"])
 logger.debug("Registered Procedure Control router at /api/v2/procedures")
 
+# SSE Events (Agent Replies to Mobile Clients)
+from app.api import events
+app.include_router(events.router, prefix="/api/v2", tags=["SSE Events"])
+logger.debug("Registered SSE Events router at /api/v2")
+
 logger.info("All API routers registered successfully")
 
 # Initialize new services

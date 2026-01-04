@@ -55,10 +55,24 @@ class FeedbackService:
         await adapter.send(payload)
 
     async def send_agent_reply(self, username: str, reply: str) -> None:
+        """
+        Send agent reply to connected clients.
+        
+        Delivery methods:
+        - SSE: For Android/mobile clients with active SSE connection
+        - HTTP POST: For Mentra Client (legacy callback)
+        """
+        # SSE push (Android clients)
+        from app.services.sse_manager import sse_manager
+        sse_delivered = await sse_manager.publish(username, "agent_reply", {"text": reply})
+        
+        # HTTP fallback (Mentra Client)
         url = f"{settings.MENTRA_URL}/agent_reply"
         payload = {"username": username, "text": reply}
         adapter = HttpFeedbackAdapter(url)
         await adapter.send(payload)
+        
+        logger.info(f"[FEEDBACK] Agent reply sent to {username} (SSE: {sse_delivered}, HTTP: True)")
 
     async def send_progress_notification(self, username: str, from_step: Optional[int], to_step: Optional[int]) -> None:
         url = f"{settings.MENTRA_URL}/progress_step"

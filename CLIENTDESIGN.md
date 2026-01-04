@@ -442,6 +442,92 @@ asyncio.run(run_procedure("proc_refill_dishwasher_salt", SOURCE_ID))
 
 ---
 
+## 8. Real-Time Agent Replies (SSE)
+
+For clients that cannot receive HTTP POST callbacks (like Android apps), use Server-Sent Events to receive agent replies in real-time.
+
+### Why SSE?
+
+- **No polling needed** for agent replies (instant delivery)
+- **No external dependencies** (pure HTTP, no Firebase)
+- **Works through proxies** and firewalls
+
+### HTTP Request
+
+```
+GET http://copilot:8000/api/v2/events/{username}
+Accept: text/event-stream
+```
+
+This is a **long-lived connection**. Keep it open while the procedure is active.
+
+### Event Types
+
+| Event | Description | Payload |
+|-------|-------------|---------|
+| `agent_reply` | AI answered user's question | `{"text": "..."}` |
+| `heartbeat` | Keep-alive (every 30s) | `{}` |
+
+### Response Stream
+
+```
+event: agent_reply
+data: {"text": "Pour about 1kg of salt until the reservoir is full."}
+
+event: heartbeat
+data: {}
+
+event: agent_reply
+data: {"text": "Make sure to close the reservoir cap after filling."}
+```
+
+### Android (Kotlin) Example
+
+```kotlin
+import okhttp3.*
+import okhttp3.sse.*
+
+val client = OkHttpClient()
+val request = Request.Builder()
+    .url("http://copilot:8000/api/v2/events/$username")
+    .build()
+
+val listener = object : EventSourceListener() {
+    override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+        when (type) {
+            "agent_reply" -> {
+                val reply = JSONObject(data).getString("text")
+                runOnUiThread { showToast(reply) }  // or speak via TTS
+            }
+        }
+    }
+    
+    override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+        // Reconnect after delay
+        Handler(Looper.getMainLooper()).postDelayed({
+            connectSSE()
+        }, 3000)
+    }
+}
+
+val eventSource = EventSources.createFactory(client)
+    .newEventSource(request, listener)
+
+// To disconnect:
+// eventSource.cancel()
+```
+
+### Reconnection Handling
+
+If the connection drops:
+1. Wait 1-3 seconds
+2. Reconnect to the same endpoint
+3. Continue receiving events
+
+> ⚠️ **Note:** SSE is for agent replies only. Step progression should still use polling via `GET /api/v2/status`.
+
+---
+
 ## Checklist for Glasses App
 
 - [ ] RTMP streaming working before procedure starts

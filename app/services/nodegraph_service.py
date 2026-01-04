@@ -479,6 +479,14 @@ class NodeGraphProcedureService:
                     f"seq={result.sequence_id}, predictions={result.predictions}"
                 )
                 
+                # Store latest predictions in session (rolling buffer of 3)
+                session.latest_predictions.append(result.predictions)
+                if len(session.latest_predictions) > 3:
+                    session.latest_predictions.pop(0)
+                
+                # Log predictions to STM (lightweight rolling update)
+                await self._log_predictions_to_stm(session, result.predictions)
+                
                 # Evaluate guards with the predictions (only if auto_progress enabled)
                 if session.auto_progress_enabled:
                     now_ms = int(time.time() * 1000)
@@ -552,6 +560,35 @@ class NodeGraphProcedureService:
         }
         save_user_status(session.username, status_data)
     
+    async def _log_predictions_to_stm(
+        self,
+        session: NodeGraphSession,
+        predictions: Dict[str, float]
+    ) -> None:
+        """Log latest AI predictions to STM for agent context.
+        
+        Formats top 3 predictions as a concise visual state entry.
+        Uses a special key so Memory Service can handle as rolling update.
+        """
+        if not session.external_session_id:
+            return
+        
+        try:
+            # Get top 3 predictions by confidence
+            sorted_preds = sorted(predictions.items(), key=lambda x: x[1], reverse=True)[:3]
+            
+            # Format as concise string: "step_03: 0.87, step_02: 0.12, step_01: 0.01"
+            pred_str = ", ".join([f"{cls}: {conf:.2f}" for cls, conf in sorted_preds])
+            content = f"[visual_state] AI predictions: {pred_str}"
+            
+            # Log to session (Memory Service will treat visual_state as rolling key)
+            await self.strategy.log_event(
+                session.external_session_id,
+                _PredictionEvent(predictions=predictions, formatted=content)
+            )
+        except Exception as e:
+            logger.error(f"[NODEGRAPH_SERVICE] Failed to log predictions to STM: {e}")
+    
     def get_debug_state(self) -> Dict:
         """Return internal state for debugging."""
         sessions_data = {}
@@ -572,6 +609,13 @@ class NodeGraphProcedureService:
             "active_sessions": sessions_data,
             "user_sources": self._user_sources
         }
+
+
+class _PredictionEvent:
+    """Internal event for logging predictions to STM."""
+    def __init__(self, predictions: Dict[str, float], formatted: str):
+        self.predictions = predictions
+        self.formatted = formatted
 
 
 # Global instance (created lazily when nodegraph strategy is selected)

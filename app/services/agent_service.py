@@ -25,47 +25,68 @@ class AgentService:
 
             logger.info(f"Processing question: '{question_text}' from source {source_id}")
 
-            # 1. Resolve User
+            # 1. Resolve User - check both services based on strategy
             username = None
-            # Reverse lookup in _user_sources
-            # This is O(N) but N (users) is very small
-            for user, src in procedure_service._user_sources.items():
-                if src == source_id:
-                    username = user
-                    break
+            external_session_id = None
+            procedure_name = None
+            current_step_name = None
+            
+            # Check which strategy is active
+            if settings.PROCEDURE_STRATEGY == "nodegraph":
+                # Use NodeGraph service for session lookup
+                from app.services.nodegraph_service import get_nodegraph_service
+                nodegraph_svc = get_nodegraph_service()
+                
+                # Reverse lookup in nodegraph_service._user_sources
+                for user, src in nodegraph_svc._user_sources.items():
+                    if src == source_id:
+                        username = user
+                        break
+                
+                if username:
+                    # Get session from nodegraph service
+                    ng_session = nodegraph_svc.get_session(username)
+                    if ng_session:
+                        external_session_id = ng_session.external_session_id
+                        procedure_name = ng_session.procedure.title if ng_session.procedure else None
+                        node = ng_session.get_current_node()
+                        if node:
+                            current_step_name = node.ui.title
+                        logger.info(f"Found NodeGraph session {external_session_id} for user {username}")
+            else:
+                # Use legacy procedure service
+                for user, src in procedure_service._user_sources.items():
+                    if src == source_id:
+                        username = user
+                        break
+                
+                if username:
+                    sessions = procedure_service._active_sessions.get(username)
+                    if sessions:
+                        session = sessions[0]
+                        external_session_id = session.external_session_id
+                        if session.procedure:
+                            procedure_name = session.procedure.name
+                            if 0 <= session.current_index < len(session.procedure.steps):
+                                current_step_name = session.procedure.steps[session.current_index].name
+                        logger.info(f"Found legacy session {external_session_id} for user {username}")
             
             if not username:
-                # Fallback: if we can't find a user for this source, maybe use a default or just log
-                # For now, let's assume "default_user" or similar if configured, or just use source_id as user
-                # But Memory Service might expect a valid user.
+                # Fallback: use source_id as username
                 logger.warning(f"Could not map source_id {source_id} to a username. Using source_id '{source_id}' as username.")
                 username = source_id
 
-            # 2. Resolve Session
-            session = None
-            sessions = procedure_service._active_sessions.get(username)
-            if sessions:
-                # Use the first active session
-                session = sessions[0]
-                logger.info(f"Found active session {session.external_session_id} for user {username}")
-            else:
+            # Session already resolved above
+            if not external_session_id:
                 logger.info(f"No active session for user {username}. Sending ambient question.")
 
             # 3. Call Memory Service
-            if session and session.external_session_id:
-                # Enrich payload with context (similar to app/api/agent.py)
-                current_step_name = None
-                procedure_name = None
-                
-                if session.procedure:
-                    procedure_name = session.procedure.name
-                    if 0 <= session.current_index < len(session.procedure.steps):
-                        current_step_name = session.procedure.steps[session.current_index].name
-
+            if external_session_id:
+                # Session context was resolved above based on strategy
                 payload = {
                     "query": question_text,
                     "username": username,
-                    "session_id": session.external_session_id,
+                    "session_id": external_session_id,
                     "current_step_name": current_step_name,
                     "procedure_name": procedure_name
                 }

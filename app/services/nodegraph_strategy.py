@@ -105,6 +105,20 @@ class NodeGraphProcedureStrategy(ProcedureStrategy):
         if isinstance(event, NodeGraphDispatchNeeded):
             return
         
+        # Handle prediction events (check by attribute since class is internal)
+        if hasattr(event, 'formatted') and hasattr(event, 'predictions'):
+            content = event.formatted
+            metadata = {"type": "visual_state", "rolling_key": "latest_predictions"}
+            try:
+                await self.client.add_item_to_session(
+                    session_id=session_id,
+                    content=content,
+                    metadata=metadata
+                )
+            except Exception as e:
+                logger.error(f"[NODEGRAPH_STRATEGY] Failed to log prediction: {e}")
+            return
+        
         # Format event content
         if isinstance(event, NodeGraphTransitionEvent):
             content = (

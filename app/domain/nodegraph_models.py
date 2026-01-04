@@ -118,6 +118,8 @@ class NodeGraphSession:
     # Control API fields
     auto_progress_enabled: bool = True            # When False, AI predictions don't trigger transitions
     visited_nodes: List[str] = field(default_factory=list)  # History of visited node IDs for "prev" navigation
+    # AI Predictions for agent context (rolling buffer of last 3)
+    latest_predictions: List[Dict] = field(default_factory=list)  # [{class: confidence}, ...]
 
     def get_current_node(self) -> Optional[NodeDef]:
         """Get the current node definition."""

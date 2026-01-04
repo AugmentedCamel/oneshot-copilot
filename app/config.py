@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 # Set to True to enable detailed debug logging throughout the application.
 # Set to False to minimize logging output to only warnings and errors.
 # ============================================================================
-VERBOSE_LOGGING = True
+VERBOSE_LOGGING = False
 
 # ============================================================================
 # HTTP CLIENT CONFIGURATION
