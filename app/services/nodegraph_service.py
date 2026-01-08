@@ -115,7 +115,7 @@ class NodeGraphProcedureService:
         # Start STM batch processor
         self._start_stm_batch_processor()
 
-        logger.info("[NODEGRAPH_SERVICE] Initialized NodeGraphProcedureService with batched STM logging")
+        logger.info("[NODEGRAPH_SERVICE] Initialized with batched STM logging")
     
     async def start_procedure(
         self, 
@@ -133,19 +133,16 @@ class NodeGraphProcedureService:
         Returns:
             Dict with status and session details
         """
-        logger.info(f"[NODEGRAPH_SERVICE] Starting procedure {procedure_id} for {username}")
-        
-        # Resolve source ID
+        # Resolve source ID - default to username if not provided
         if not source_id:
-            source_id = self._user_sources.get(username)
-            if not source_id:
-                raise ValueError("Source ID is required for new session")
-        
+            source_id = self._user_sources.get(username) or username
+
         # Validate source exists
         source = ingest_service.get_source(source_id)
         if not source:
-            raise ValueError(f"Source not found: {source_id}")
-        
+            all_source_ids = [s.id for s in ingest_service.get_all_sources()]
+            raise ValueError(f"Source not found: {source_id}. Available: {all_source_ids}")
+
         # Update user source mapping
         self._user_sources[username] = source_id
         
@@ -725,12 +722,10 @@ class NodeGraphProcedureService:
         """Handle new frame ingestion."""
         frame: Frame = event.payload.get("frame")
         if not frame:
-            logger.warning("[NODEGRAPH_SERVICE] _on_frame_created: No frame in event payload")
             return
 
         # Timing instrumentation
         now = time.time()
-        frame_interval_ms = (now - self._last_frame_event_time) * 1000 if self._last_frame_event_time > 0 else 0
         self._last_frame_event_time = now
         self._stats["frames_received"] += 1
 
@@ -739,17 +734,8 @@ class NodeGraphProcedureService:
         # Find users interested in this source
         target_users = [u for u, s in self._user_sources.items() if s == source_id]
 
-        logger.debug(
-            f"[NODEGRAPH_SERVICE] Frame received: source={source_id}, "
-            f"frame_id={frame.id}, target_users={target_users}, "
-            f"active_sessions={list(self._active_sessions.keys())}"
-        )
-
         if not target_users:
-            logger.debug(
-                f"[NODEGRAPH_SERVICE] No users subscribed to source {source_id}. "
-                f"user_sources={self._user_sources}"
-            )
+            # No active sessions for this source - silently ignore
             return
 
         now_ms = int(time.time() * 1000)
@@ -758,33 +744,14 @@ class NodeGraphProcedureService:
             if username in self._active_sessions:
                 session = self._active_sessions[username]
 
-                logger.debug(
-                    f"[NODEGRAPH_SERVICE] Processing frame for {username}: "
-                    f"current_node={session.current_node_id}, "
-                    f"auto_progress={session.auto_progress_enabled}"
-                )
-
                 # Ingest frame into engine (for state tracking)
                 events = self.engine.ingest_frame(session, frame.id, now_ms)
-
-                logger.debug(
-                    f"[NODEGRAPH_SERVICE] Engine returned {len(events)} events for {username}: "
-                    f"{[type(e).__name__ for e in events]}"
-                )
 
                 # Process events - for async mode we just fire-and-forget the frame
                 for e in events:
                     if isinstance(e, NodeGraphDispatchNeeded):
-                        logger.info(
-                            f"[NODEGRAPH_SERVICE] Dispatch needed for {username}: "
-                            f"procedure={e.procedure_id}, classes={e.target_classes}"
-                        )
                         # Async mode: submit frame without waiting for response
                         asyncio.create_task(self._ingest_frame_async(session, e))
-            else:
-                logger.debug(
-                    f"[NODEGRAPH_SERVICE] User {username} subscribed to source but has no active session"
-                )
     
     async def _ingest_frame_async(
         self,

@@ -1,9 +1,12 @@
 """Node Graph Procedure API endpoints."""
+import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -21,29 +24,35 @@ class StopNodeGraphRequest(BaseModel):
 @router.post("/nodegraph/start")
 async def start_nodegraph_procedure(request: StartNodeGraphRequest):
     """Start a node graph procedure for a user.
-    
+
     This uses the NodeGraphProcedureService to load a knowledge graph
     procedure from the Memory Service and begin execution.
     """
+    logger.info(f"[NODEGRAPH_API] POST /nodegraph/start - username={request.username}, procedure_id={request.procedure_id}")
+
     if settings.PROCEDURE_STRATEGY != "nodegraph":
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="Node graph strategy is not enabled. Set PROCEDURE_STRATEGY=nodegraph"
         )
-    
+
     try:
         from app.services.nodegraph_service import get_nodegraph_service
         service = get_nodegraph_service()
-        
+
         result = await service.start_procedure(
             username=request.username,
             procedure_id=request.procedure_id,
             source_id=request.source_id
         )
+
+        logger.info(f"[NODEGRAPH_API] Procedure started: {result.get('procedure_id')} for {request.username}")
         return result
     except ValueError as e:
+        logger.error(f"[NODEGRAPH_API] ValueError: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"[NODEGRAPH_API] Exception: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -113,16 +122,38 @@ async def get_nodegraph_debug():
     """Get debug state for all active node graph sessions."""
     if settings.PROCEDURE_STRATEGY != "nodegraph":
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="Node graph strategy is not enabled"
         )
-    
+
     try:
         from app.services.nodegraph_service import get_nodegraph_service
         service = get_nodegraph_service()
         return service.get_debug_state()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/nodegraph/debug/trace")
+async def get_debug_trace():
+    """Read the debug trace log file."""
+    from pathlib import Path
+
+    debug_file = Path("debug_trace.log")
+    if not debug_file.exists():
+        return {"trace": "No debug trace file found", "lines": 0}
+
+    content = debug_file.read_text(encoding="utf-8")
+    lines = content.strip().split("\n") if content.strip() else []
+
+    # Return last 100 lines
+    recent_lines = lines[-100:] if len(lines) > 100 else lines
+
+    return {
+        "total_lines": len(lines),
+        "showing_last": len(recent_lines),
+        "trace": "\n".join(recent_lines)
+    }
 
 
 @router.get("/nodegraph/available")

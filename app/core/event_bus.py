@@ -14,6 +14,8 @@ class EventBus:
         if event_type not in self._subscribers:
             self._subscribers[event_type] = []
         self._subscribers[event_type].append(callback)
+        callback_name = f"{callback.__self__.__class__.__name__}.{callback.__name__}" if hasattr(callback, '__self__') else callback.__name__
+        logger.info(f"[EVENT_BUS] Subscribed {callback_name} to {event_type.value}")
 
     def subscribe_all(self, callback: Callable[[Event], Any]):
         self._all_subscribers.append(callback)

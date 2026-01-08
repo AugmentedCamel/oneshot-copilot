@@ -44,6 +44,7 @@ class ProcedureService:
         
         # Subscribe to frame events
         event_bus.subscribe(EventType.FRAME_CREATED, self._on_frame_created)
+        logger.info("[PROCEDURE_SERVICE] Initialized")
 
     async def start_procedure(self, username: str, procedure_id: str, source_id: Optional[str] = None, policy: str = "replace") -> Dict:
         """
@@ -58,19 +59,17 @@ class ProcedureService:
         Returns:
             Dict with status and session details.
         """
-        logger.info(f"Request to start procedure: user={username}, id={procedure_id}, source={source_id}, policy={policy}")
-        
-        # 1. Resolve Source ID
+        # 1. Resolve Source ID - default to username if not provided
         if not source_id:
-            source_id = self._user_sources.get(username)
-            if not source_id:
-                raise ValueError("Source ID is required for new session if not already established.")
-        
+            # First try existing mapping, then default to username
+            source_id = self._user_sources.get(username) or username
+
         # Validate source exists
         source = ingest_service.get_source(source_id)
         if not source:
-            raise ValueError(f"Source not found: {source_id}")
-            
+            all_source_ids = [s.id for s in ingest_service.get_all_sources()]
+            raise ValueError(f"Source not found: {source_id}. Available: {all_source_ids}")
+
         # Update user source mapping
         self._user_sources[username] = source_id
         
@@ -199,18 +198,21 @@ class ProcedureService:
             return
 
         source_id = frame.source_id
-        
+
         # Find users interested in this source
         target_users = [u for u, s in self._user_sources.items() if s == source_id]
-        
+
+        if not target_users:
+            return
+
         import time
         now_ms = int(time.time() * 1000)
-        
+
         for username in target_users:
             if username in self._active_sessions:
+                sessions = list(self._active_sessions[username])
                 # Iterate over copy since we might modify list
-                for session in list(self._active_sessions[username]):
-                    # logger.debug(f"Processing frame {frame.id} for user {username}, inflight={session.inflight}")
+                for session in sessions:
                     events = self.engine.ingest_frame(session, frame.id, now_ms)
                     
                     # Process events

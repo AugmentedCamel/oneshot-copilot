@@ -7,7 +7,14 @@
       "Bash(where:*)",
       "Bash(python augment_data.py:*)",
       "Bash(dir /b \"C:\\\\Users\\\\mikam\\\\Local\\\\oneshot\\\\oneshot-copilot-clean\")",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "WebSearch",
+      "WebFetch(domain:mediamtx.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:srtlab.github.io)",
+      "Bash(dir \"C:\\\\Users\\\\mikam\\\\local\\\\oneshot\\\\oneshot-copilot-clean\\\\debug_trace.log\")",
+      "Bash(dir:*)",
+      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\mikam\\\\local\\\\oneshot\\\\oneshot-copilot-clean\\\\'' -Filter ''*.log'' | Select-Object Name, LastWriteTime, Length\")"
     ]
   }
 }

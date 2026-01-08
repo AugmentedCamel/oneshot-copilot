@@ -38,6 +38,10 @@ class AudioStreamReader:
             self.thread.join(timeout=2)
         logger.info(f"AudioStreamReader stopped for {self.source_id}")
 
+    def _is_srt_url(self, url: str) -> bool:
+        """Check if URL is an SRT stream."""
+        return url.startswith("srt://")
+
     def _run_ffmpeg(self):
         # FFmpeg command to extract audio:
         # -i [url]: Input URL
@@ -47,8 +51,15 @@ class AudioStreamReader:
         # -ar 16000: Sample rate 16kHz
         # -ac 1: Channels 1 (mono)
         # -: Output to stdout
-        command = [
-            "ffmpeg",
+
+        # Build command with SRT-specific flags if needed
+        command = ["ffmpeg"]
+
+        # Add low-latency flags for SRT streams
+        if self._is_srt_url(self.stream_url):
+            command.extend(["-fflags", "nobuffer"])
+
+        command.extend([
             "-i", self.stream_url,
             "-vn",
             "-f", "s16le",
@@ -56,7 +67,7 @@ class AudioStreamReader:
             "-ar", "16000",
             "-ac", "1",
             "-"
-        ]
+        ])
 
         while self.running and not self._stop_event.is_set():
             try:

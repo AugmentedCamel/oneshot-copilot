@@ -18,7 +18,8 @@ def setup_logging():
         logging.basicConfig(
             level=logging.DEBUG,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            datefmt='%Y-%m-%d %H:%M:%S',
+            force=True  # Override any existing logging config from imports
         )
         logging.info("=" * 60)
         logging.info("VERBOSE LOGGING ENABLED")
@@ -28,7 +29,8 @@ def setup_logging():
         logging.basicConfig(
             level=logging.WARNING,
             format='%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            datefmt='%Y-%m-%d %H:%M:%S',
+            force=True  # Override any existing logging config from imports
         )
         # Configure a dedicated logger to allow only VLM response lines
         class OnlyVLMResponseFilter(logging.Filter):

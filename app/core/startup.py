@@ -5,8 +5,19 @@ from app.config import settings
 from app.domain.entities import Source
 from app.services.ingest_service import ingest_service
 from app.services.stream_reader import RtspStreamReader
+from app.services.srt_stream_reader import SrtStreamReader
 from app.services.audio_stream_reader import AudioStreamReader
 from app.services.audio_analyzer import audio_analyzer
+
+
+def _detect_protocol(url: str) -> str:
+    """Auto-detect streaming protocol from URL prefix."""
+    if url.startswith("srt://"):
+        return "srt"
+    elif url.startswith("rtmp://"):
+        return "rtmp"
+    else:
+        return "rtsp"
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +29,7 @@ async def run_startup_initialization():
     Initialize the application by registering default sources and starting background tasks.
     """
     logger.info("Running startup initialization...")
-    
-    # Log VLM Strategy mode
-    logger.info(f"[STARTUP] VLM Strategy: {settings.VLM_STRATEGY} {'(async ai_node)' if settings.VLM_STRATEGY == 'reasoning' else '(sync VLM)'}")
+    logger.info(f"[STARTUP] VLM Strategy: {settings.VLM_STRATEGY}, Procedure Strategy: {settings.PROCEDURE_STRATEGY}")
 
     # Initialize Audio Analyzer models
     try:
@@ -29,14 +38,12 @@ async def run_startup_initialization():
     except Exception as e:
         logger.error(f"Failed to initialize AudioAnalyzer models: {e}")
 
-    # 1. Register Default Stream Source if configured (RTSP or RTMP)
+    # 1. Register Default Stream Source if configured (RTSP, RTMP, or SRT)
     if settings.RTSP_STREAM_URL:
         # Auto-detect protocol from URL
-        protocol = "rtsp" if settings.RTSP_STREAM_URL.startswith("rtsp://") else "rtmp"
-        logger.info(f"Found {protocol.upper()} stream configuration: {settings.RTSP_STREAM_URL}")
-        
+        protocol = _detect_protocol(settings.RTSP_STREAM_URL)
         source_id = settings.STREAM_USERNAME or "default_camera"
-        
+
         source = Source(
             id=source_id,
             name=f"Default {protocol.upper()} Camera",
@@ -44,23 +51,34 @@ async def run_startup_initialization():
             ingest_type=protocol,
             config={"url": settings.RTSP_STREAM_URL}
         )
-        
         ingest_service.register_source(source)
-        
-        # Start video stream reader
-        reader = RtspStreamReader(source_id, settings.RTSP_STREAM_URL)
+        logger.info(f"[STARTUP] Registered source: {source_id} ({protocol.upper()})")
+
+        # Start video stream reader (choose based on protocol)
+        if protocol == "srt":
+            reader = SrtStreamReader(source_id, settings.RTSP_STREAM_URL)
+            logger.info(f"[STARTUP] Using SRT stream (latency={settings.SRT_LATENCY_MS}ms)")
+        else:
+            reader = RtspStreamReader(source_id, settings.RTSP_STREAM_URL)
+            logger.info(f"[STARTUP] Using {protocol.upper()} stream")
+
         reader.start()
         _active_stream_readers.append(reader)
-        
-        # Start audio stream reader
-        # Use a lambda to pass source_id to the analyzer
+
+        # Start audio stream reader (works with all protocols)
         audio_callback = lambda chunk: audio_analyzer.process_chunk(chunk, source_id)
         audio_reader = AudioStreamReader(source_id, settings.RTSP_STREAM_URL, audio_callback)
         audio_reader.start()
         _active_stream_readers.append(audio_reader)
-        
+        logger.info("[STARTUP] Video and audio stream readers started")
     else:
-        logger.info("No default RTSP stream configured.")
+        logger.info("[STARTUP] No stream URL configured")
+
+    # 2. Initialize NodeGraph service if using nodegraph strategy (must subscribe to events early!)
+    if settings.PROCEDURE_STRATEGY == "nodegraph":
+        from app.services.nodegraph_service import get_nodegraph_service
+        get_nodegraph_service()
+        logger.info("[STARTUP] NodeGraphProcedureService initialized")
 
     # 3. Start Data Harvester if enabled
     if settings.DATA_HARVESTER_ENABLED:

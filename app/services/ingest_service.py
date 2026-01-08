@@ -18,7 +18,8 @@ class IngestService:
 
     def register_source(self, source: Source):
         self._sources[source.id] = source
-        logger.info(f"Registered source: {source.name} ({source.id})")
+        logger.info(f"[INGEST_DEBUG] Registered source: {source.name} (id={source.id}, type={source.type}, ingest_type={source.ingest_type})")
+        logger.info(f"[INGEST_DEBUG] All registered sources now: {list(self._sources.keys())}")
 
     def get_source(self, source_id: str) -> Optional[Source]:
         return self._sources.get(source_id)
@@ -27,16 +28,21 @@ class IngestService:
         return list(self._sources.values())
 
     async def ingest_frame(self, source_id: str, frame_data: bytes, metadata: Dict = None):
+        logger.info(f"[INGEST_DEBUG] ingest_frame called: source_id={source_id}, data_size={len(frame_data)} bytes")
+        logger.info(f"[INGEST_DEBUG] Registered sources: {list(self._sources.keys())}")
+
         if source_id not in self._sources:
-            logger.warning(f"Ingest received frame for unknown source: {source_id}")
+            logger.warning(f"[INGEST_DEBUG] REJECTED - source_id '{source_id}' not in registered sources: {list(self._sources.keys())}")
             return
 
         frame_id = str(uuid.uuid4())
         timestamp = int(time.time() * 1000)
-        
+
+        logger.info(f"[INGEST_DEBUG] Creating frame {frame_id[:8]}... for source {source_id}")
+
         # Save frame using existing store
-        store_frame(frame_id, frame_data) 
-        
+        store_frame(frame_id, frame_data)
+
         # Create Frame entity
         frame = Frame(
             id=frame_id,
@@ -53,8 +59,10 @@ class IngestService:
             source_id=source_id,
             payload={"frame": frame}
         )
-        
+
+        logger.info(f"[INGEST_DEBUG] Publishing FRAME_CREATED event for frame {frame_id[:8]}...")
         await event_bus.publish(event)
+        logger.info(f"[INGEST_DEBUG] FRAME_CREATED event published for frame {frame_id[:8]}")
         
         # Timing instrumentation
         now = time.time()

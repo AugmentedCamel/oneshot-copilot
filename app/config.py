@@ -58,10 +58,14 @@ class Settings(BaseSettings):
     VLM_STRATEGY: str = "reasoning"  # Options: "legacy" (sync VLM), "reasoning" (async ai_node)
     AI_NODE_URL: str = "http://localhost:8080"  # Local AI reasoning node URL
     
-    RTSP_STREAM_URL: str = ""  # Optional RTSP/RTMP stream URL, empty = disabled
-    STREAM_PROTOCOL: str = "rtsp"  # Options: "rtsp", "rtmp" - auto-detected from URL if not set
-    STREAM_USERNAME: str = "stream_user"  # Username for stream-ingested frames
+    RTSP_STREAM_URL: str = ""  # Optional RTSP/RTMP/SRT stream URL, empty = disabled
+    STREAM_PROTOCOL: str = "rtsp"  # Options: "rtsp", "rtmp", "srt" - auto-detected from URL if not set
+    STREAM_USERNAME: str = "Mikameel"  # Username/source_id for stream-ingested frames (hardcoded for now)
     MAX_FRAMES_PER_USER: int = 10
+
+    # SRT Stream Configuration (used when URL starts with srt://)
+    SRT_LATENCY_MS: int = 400  # SRT latency in milliseconds (conservative for unreliable WiFi)
+    SRT_PACKET_SIZE: int = 1316  # SRT packet size (standard)
     SAVE_FRAMES_TO_DISK: bool = False  # Save frames to disk for debugging/verification
 
     MEMORY_SERVICE_URL: str = "http://localhost:8040"
