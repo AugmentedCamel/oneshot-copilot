@@ -114,44 +114,55 @@ class NodeGraphEngine:
         now_ms: int
     ) -> List[DomainEvent]:
         """Prepare AI dispatch for the current node.
-        
+
         Returns a NodeGraphDispatchNeeded event if dispatch is needed.
         """
         events = []
-        
-        # Time-based throttle: allow max 5 fps (200ms between ingests)
+
+        # Time-based throttle: allow max 20 fps (50ms between ingests)
         # This replaces the old inflight blocking which waited for HTTP completion
         # and was limiting us to ~1 fps.
-        MIN_INGEST_INTERVAL_MS = 200
+        MIN_INGEST_INTERVAL_MS = 50
         if session.last_frame_at_ms is not None:
             elapsed_ms = now_ms - session.last_frame_at_ms
             if elapsed_ms < MIN_INGEST_INTERVAL_MS:
                 # Too soon since last ingest, skip this frame
+                logger.debug(
+                    f"[NODEGRAPH] prepare_dispatch: throttled for {session.username} "
+                    f"(elapsed={elapsed_ms}ms < {MIN_INGEST_INTERVAL_MS}ms)"
+                )
                 return events
-        
+
         node = session.get_current_node()
         if not node:
+            logger.warning(f"[NODEGRAPH] prepare_dispatch: no current node for {session.username}")
             return events
-        
+
         # FINAL nodes don't need AI verification
         if node.type == NodeType.FINAL:
+            logger.debug(f"[NODEGRAPH] prepare_dispatch: node {node.id} is FINAL, skipping")
             return events
-        
+
         if not node.cortex_config:
             logger.warning(f"[NODEGRAPH] Node {node.id} has no cortex_config")
             return events
-        
+
         # Get all classes to check for this node
         target_classes = session.procedure.get_all_target_classes(session.current_node_id)
-        
+
         # Get excluded candidates and candidate scope from cortex config
         excluded_candidates = node.cortex_config.excluded_candidates if node.cortex_config else []
         candidate_scope = node.cortex_config.candidate_scope if node.cortex_config else []
-        
+
         session.inflight = True
         session.inflight_frame_id = frame_id
         session.last_frame_at_ms = now_ms
-        
+
+        logger.debug(
+            f"[NODEGRAPH] prepare_dispatch: creating dispatch event for {session.username}, "
+            f"node={node.id}, target_classes={target_classes}"
+        )
+
         events.append(NodeGraphDispatchNeeded(
             username=session.username,
             frame_id=frame_id,
@@ -162,7 +173,7 @@ class NodeGraphEngine:
             candidate_scope=candidate_scope,
             idem_key=frame_id
         ))
-        
+
         return events
 
     def evaluate_guards(
@@ -172,41 +183,44 @@ class NodeGraphEngine:
         now_ms: int
     ) -> List[DomainEvent]:
         """Step C: Guard Evaluation.
-        
+
         Evaluates predictions against the current node's guards and
         triggers transitions as needed.
-        
+
         Priority order:
         1. Check errors (safety first)
         2. Check success (VISUAL_STATE or ACTION_DURATION)
         """
         events = []
-        
+
         # Mark as not inflight
         session.inflight = False
         session.inflight_frame_id = None
-        
+
         node = session.get_current_node()
         if not node:
             logger.error(f"[NODEGRAPH] Cannot evaluate guards: node not found")
             return events
-        
+
         # FINAL nodes complete the procedure
         if node.type == NodeType.FINAL:
+            logger.info(f"[NODEGRAPH] evaluate_guards: node {node.id} is FINAL, completing procedure")
             events.append(NodeGraphCompletedEvent(
                 username=session.username,
                 procedure_id=session.procedure.procedure_id,
                 final_node=node.id
             ))
             return events
-        
+
         cortex = node.cortex_config
         if not cortex:
+            logger.warning(f"[NODEGRAPH] evaluate_guards: node {node.id} has no cortex_config")
             return events
-        
-        logger.debug(
-            f"[NODEGRAPH] Evaluating guards for node {node.id}: "
-            f"predictions={predictions}"
+
+        logger.info(
+            f"[NODEGRAPH] Evaluating guards for {session.username} at node {node.id}: "
+            f"target_class={cortex.target_class}, mode={cortex.verification_mode.value}, "
+            f"min_confidence={cortex.min_confidence}, predictions={predictions}"
         )
         
         # ===== PRIORITY 1: Check Errors (Safety First) =====
@@ -237,11 +251,11 @@ class NodeGraphEngine:
         target_score = predictions.get(cortex.target_class, 0.0)
         is_confident = target_score >= cortex.min_confidence
         
-        logger.debug(
+        logger.info(
             f"[NODEGRAPH] Target {cortex.target_class}: score={target_score:.2f}, "
             f"threshold={cortex.min_confidence}, confident={is_confident}"
         )
-        
+
         if cortex.verification_mode == VerificationMode.VISUAL_STATE:
             events.extend(self._evaluate_visual_state(
                 session, node, cortex, is_confident, now_ms
@@ -250,7 +264,12 @@ class NodeGraphEngine:
             events.extend(self._evaluate_action_duration(
                 session, node, cortex, is_confident, now_ms
             ))
-        
+
+        if events:
+            logger.info(f"[NODEGRAPH] evaluate_guards produced {len(events)} events: {[type(e).__name__ for e in events]}")
+        else:
+            logger.debug(f"[NODEGRAPH] evaluate_guards: no transition (buffer={len(session.validation_buffer)})")
+
         return events
 
     def _evaluate_visual_state(
@@ -270,14 +289,14 @@ class NodeGraphEngine:
         
         if is_confident:
             session.validation_buffer.append(True)
-            logger.debug(
+            logger.info(
                 f"[NODEGRAPH] VISUAL_STATE: buffer has "
-                f"{len(session.validation_buffer)}/{stability_frames} frames"
+                f"{len(session.validation_buffer)}/{stability_frames} confident frames"
             )
         else:
             # Strict mode: clear buffer on non-confident frame
             if session.validation_buffer:
-                logger.debug(f"[NODEGRAPH] VISUAL_STATE: clearing buffer (not confident)")
+                logger.info(f"[NODEGRAPH] VISUAL_STATE: clearing buffer (not confident)")
             session.validation_buffer.clear()
         
         # Check if we have enough consecutive confident frames
@@ -312,14 +331,14 @@ class NodeGraphEngine:
             if session.action_timer_start is None:
                 # Start the timer
                 session.action_timer_start = now_seconds
-                logger.debug(f"[NODEGRAPH] ACTION_DURATION: started timer")
+                logger.info(f"[NODEGRAPH] ACTION_DURATION: started timer at {now_seconds:.2f}s")
             else:
                 elapsed = now_seconds - session.action_timer_start
-                logger.debug(
+                logger.info(
                     f"[NODEGRAPH] ACTION_DURATION: elapsed={elapsed:.2f}s / "
                     f"{duration_threshold}s"
                 )
-                
+
                 if elapsed >= duration_threshold:
                     logger.info(
                         f"[NODEGRAPH] ACTION_DURATION success: "
@@ -332,7 +351,7 @@ class NodeGraphEngine:
         else:
             # User stopped action, reset timer
             if session.action_timer_start is not None:
-                logger.debug(f"[NODEGRAPH] ACTION_DURATION: resetting timer (action stopped)")
+                logger.info(f"[NODEGRAPH] ACTION_DURATION: resetting timer (action stopped)")
             session.action_timer_start = None
         
         return events
@@ -394,22 +413,32 @@ class NodeGraphEngine:
         now_ms: int
     ) -> List[DomainEvent]:
         """Handle a new frame for the session.
-        
+
         Returns dispatch event if AI verification is needed.
         """
         events = []
-        
+
         node = session.get_current_node()
         if not node:
+            logger.warning(
+                f"[NODEGRAPH] ingest_frame: no current node for {session.username}, "
+                f"node_id={session.current_node_id}"
+            )
             return events
-        
+
         # FINAL nodes don't need frame processing
         if node.type == NodeType.FINAL:
+            logger.debug(f"[NODEGRAPH] ingest_frame: node {node.id} is FINAL, skipping")
             return events
-        
+
+        logger.debug(
+            f"[NODEGRAPH] ingest_frame: processing frame {frame_id} for {session.username}, "
+            f"node={node.id}, type={node.type.value}"
+        )
+
         # Prepare AI dispatch
         events.extend(self.prepare_dispatch(session, frame_id, now_ms))
-        
+
         return events
 
     def get_current_ui(self, session: NodeGraphSession) -> Optional[Dict]:

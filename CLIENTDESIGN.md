@@ -47,7 +47,7 @@ STREAM_USERNAME=glasses_user_001
 **On the glasses:**
 - Stream to: `rtmp://<copilot-ip>/live/<stream-key>`
 - Format: H.264, 720p recommended
-- Framerate: 15-30 FPS (server throttles to 5 FPS for AI)
+- Framerate: 15-30 FPS (server throttles to 20 FPS for AI)
 
 > ⚠️ The stream must be running BEFORE starting a procedure. The server only reads frames during an active procedure session.
 

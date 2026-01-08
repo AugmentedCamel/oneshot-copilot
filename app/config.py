@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     
     # Data Harvester Configuration
     DATA_HARVESTER_ENABLED: bool = False  # Enable harvester mode at startup
-    DATA_HARVESTER_BASE_DIR: str = "data_lake/proc_refill_dishwasher/auto_labeled"
+    DATA_HARVESTER_BASE_DIR: str = "data_lake/proc_change_coffeefilter"
     
     class Config:
         env_file = ".env"

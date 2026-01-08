@@ -29,20 +29,22 @@ class AgentService:
             username = None
             external_session_id = None
             procedure_name = None
-            current_step_name = None
-            
+            step_number = None
+            step_name = None
+            step_action = None
+
             # Check which strategy is active
             if settings.PROCEDURE_STRATEGY == "nodegraph":
                 # Use NodeGraph service for session lookup
                 from app.services.nodegraph_service import get_nodegraph_service
                 nodegraph_svc = get_nodegraph_service()
-                
+
                 # Reverse lookup in nodegraph_service._user_sources
                 for user, src in nodegraph_svc._user_sources.items():
                     if src == source_id:
                         username = user
                         break
-                
+
                 if username:
                     # Get session from nodegraph service
                     ng_session = nodegraph_svc.get_session(username)
@@ -51,7 +53,10 @@ class AgentService:
                         procedure_name = ng_session.procedure.title if ng_session.procedure else None
                         node = ng_session.get_current_node()
                         if node:
-                            current_step_name = node.ui.title
+                            step_name = node.ui.title
+                            step_action = node.ui.instruction
+                            # Step number is the position in visited_nodes + 1 (current)
+                            step_number = len(ng_session.visited_nodes) + 1
                         logger.info(f"Found NodeGraph session {external_session_id} for user {username}")
             else:
                 # Use legacy procedure service
@@ -59,7 +64,7 @@ class AgentService:
                     if src == source_id:
                         username = user
                         break
-                
+
                 if username:
                     sessions = procedure_service._active_sessions.get(username)
                     if sessions:
@@ -68,7 +73,11 @@ class AgentService:
                         if session.procedure:
                             procedure_name = session.procedure.name
                             if 0 <= session.current_index < len(session.procedure.steps):
-                                current_step_name = session.procedure.steps[session.current_index].name
+                                step = session.procedure.steps[session.current_index]
+                                step_name = step.name
+                                step_number = session.current_index + 1
+                                # Legacy steps don't have an action field
+                                step_action = None
                         logger.info(f"Found legacy session {external_session_id} for user {username}")
             
             if not username:
@@ -87,8 +96,10 @@ class AgentService:
                     "query": question_text,
                     "username": username,
                     "session_id": external_session_id,
-                    "current_step_name": current_step_name,
-                    "procedure_name": procedure_name
+                    "procedure_name": procedure_name,
+                    "step_number": step_number,
+                    "step_name": step_name,
+                    "step_action": step_action
                 }
                 await self.call_memory_agent(payload)
             else:

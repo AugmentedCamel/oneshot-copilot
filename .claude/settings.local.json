@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(wc:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(where:*)",
+      "Bash(python augment_data.py:*)",
+      "Bash(dir /b \"C:\\\\Users\\\\mikam\\\\Local\\\\oneshot\\\\oneshot-copilot-clean\")",
+      "Bash(findstr:*)"
+    ]
+  }
+}

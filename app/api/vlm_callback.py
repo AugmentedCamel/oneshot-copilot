@@ -24,6 +24,22 @@ engine = ProcedureEngine()
 context_analyzer = ContextAnalysisService()
 rule_validator = RuleValidationService()
 
+
+@router.get("/vlm/vla_callback/test")
+async def vla_callback_test() -> Dict:
+    """
+    Test endpoint to verify VLA callback route is reachable.
+    
+    Usage: curl http://localhost:8000/api/vlm/vla_callback/test
+    """
+    print("[VLA_CALLBACK_TEST] Test endpoint hit!")
+    logger.warning("[VLA_CALLBACK_TEST] Test endpoint hit!")
+    return {
+        "status": "ok",
+        "message": "VLA callback endpoint is reachable",
+        "endpoint": "/api/vlm/vla_callback"
+    }
+
 def _dict_to_rule_def(data: Dict) -> RuleDef:
     return RuleDef(
         rule_type=RuleType(data["rule_type"]),
@@ -361,3 +377,105 @@ async def reasoning_callback(request: Request) -> Dict:
     except Exception as e:
         logger.error(f"[REASONING_CALLBACK] Failed to process callback - error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to process reasoning callback: {str(e)}")
+
+
+@router.post("/vlm/vla_callback")
+async def vla_callback(request: Request) -> Dict:
+    """
+    Receive VLA (Vision-Language-Action) prediction callback from AI Node.
+
+    This endpoint receives raw stepnode predictions for each frame in the batch.
+    Called once per frame in chronological order (batch_index 0, 1, 2, ...).
+
+    Expected payload schema (from AI Node stepnode batching):
+    {
+        "predictions": {"open_door": 0.85, "closed_door": 0.15},
+        "all_probabilities": {"open_door": 0.85, "closed_door": 0.15, "class_irrelevant": 0.0},
+        "sequence_id": 142,
+        "timings": {"forward_pass_ms": 18.2, "total_ms": 25.3},
+        "_buffer_metadata": {
+            "procedure_id": "dishwasher_salt_v1",
+            "username": "chef_mike",
+            "session_id": "abc-123-def",
+            "frame_id": "frame_001",
+            "batch_index": 0,
+            "batch_size": 8,
+            "inference_ms": 202.4,
+            "per_image_ms": 25.3,
+            "processed_at": "2026-01-05T10:23:45.123Z"
+        }
+    }
+    """
+    # ========== DEBUG: Always visible logging ==========
+    print(f"\n{'='*60}")
+    print(f"[VLA_CALLBACK] ===== CALLBACK RECEIVED =====")
+    print(f"{'='*60}")
+    logger.warning(f"[VLA_CALLBACK] ===== Request received from AI Node =====")
+
+    try:
+        # Parse body
+        try:
+            payload = await request.json()
+            print(f"[VLA_CALLBACK] Payload keys: {list(payload.keys())}")
+            logger.warning(f"[VLA_CALLBACK] Payload keys: {list(payload.keys())}")
+        except Exception as e:
+            print(f"[VLA_CALLBACK] ERROR: Invalid JSON body: {e}")
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {str(e)}")
+
+        # Extract predictions (the core data)
+        predictions = payload.get("predictions", {})
+        all_probabilities = payload.get("all_probabilities", {})
+        sequence_id = payload.get("sequence_id", 0)
+        timings = payload.get("timings", {})
+
+        # Extract buffer metadata (contains user context)
+        metadata = payload.get("_buffer_metadata", {})
+        print(f"[VLA_CALLBACK] Metadata: {metadata}")
+        logger.warning(f"[VLA_CALLBACK] Metadata: {metadata}")
+        
+        # Support both 'username' (new) and 'user_id' (legacy) for backwards compatibility
+        username = metadata.get("username") or metadata.get("user_id")
+        session_id = metadata.get("session_id")
+        frame_id = metadata.get("frame_id")
+        procedure_id = metadata.get("procedure_id")
+        batch_index = metadata.get("batch_index", 0)
+        batch_size = metadata.get("batch_size", 1)
+
+        if not predictions:
+            raise HTTPException(status_code=400, detail="Missing required field: predictions")
+
+        if not username:
+            raise HTTPException(status_code=400, detail="Missing required field: _buffer_metadata.username")
+
+        logger.info(
+            f"[VLA_CALLBACK] Frame {batch_index + 1}/{batch_size} for {username}: "
+            f"seq={sequence_id}, frame_id={frame_id}, predictions={predictions}"
+        )
+        
+        # Delegate to NodeGraph service with raw predictions
+        from app.services.nodegraph_service import get_nodegraph_service
+
+        service = get_nodegraph_service()
+        result = await service.handle_ai_callback_predictions(
+            username=username,
+            session_id=session_id,
+            predictions=predictions,
+            sequence_id=sequence_id,
+            batch_index=batch_index,
+            batch_size=batch_size,
+            frame_id=frame_id
+        )
+
+        if result.get("processed"):
+            logger.info(f"[VLA_CALLBACK] Processed frame {batch_index + 1}/{batch_size} for {username}")
+        else:
+            reason = result.get("reason", "unknown")
+            logger.warning(f"[VLA_CALLBACK] Not processed for {username}: {reason}")
+
+        return {"status": "acknowledged", **result}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[VLA_CALLBACK] Failed to process callback - error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process VLA callback: {str(e)}")

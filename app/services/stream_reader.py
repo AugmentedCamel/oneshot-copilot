@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class RtspStreamReader:
     """
     Reads frames from an RTSP stream and pushes them to the IngestService.
-    Includes rate limiting (10 FPS) and quality filtering (blur/brightness).
+    Includes rate limiting (20 FPS) and quality filtering (blur/brightness).
     """
 
     def __init__(self, source_id: str, rtsp_url: str):
@@ -23,7 +23,7 @@ class RtspStreamReader:
         self._stop_event = threading.Event()
         
         # Quality Control
-        self.rate_limiter = RateLimiter(fps=10.0)
+        self.rate_limiter = RateLimiter(fps=20.0)
         
         # Timing instrumentation
         self._frame_count = 0

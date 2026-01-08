@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 AUGMENT_PREFIXES = ("aug_flip_", "aug_dark_", "aug_bright_")
 
 # Default data directory
-DEFAULT_DATA_DIR = "data_lake/proc_refill_dishwasher/auto_labeled"
+DEFAULT_DATA_DIR = "data_lake/proc_change_coffeefilter"
 
 
 class DataAugmentorService:

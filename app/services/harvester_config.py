@@ -38,4 +38,4 @@ KEY_MAP = {
 }
 
 # Default base directory for saving labeled frames
-DEFAULT_BASE_DIR = "data_lake/proc_refill_dishwasher/auto_labeled"
+DEFAULT_BASE_DIR = "data_lake/proc_change_coffeefilter"

@@ -8,6 +8,38 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+def _get_step_info_from_nodegraph_session(ng_session):
+    """Extract step info from a NodeGraph session."""
+    step_name = None
+    step_action = None
+    step_number = None
+
+    node = ng_session.get_current_node()
+    if node:
+        step_name = node.ui.title
+        step_action = node.ui.instruction
+        # Step number is the position in visited_nodes + 1 (current)
+        step_number = len(ng_session.visited_nodes) + 1
+
+    return step_number, step_name, step_action
+
+
+def _get_step_info_from_legacy_session(session):
+    """Extract step info from a legacy session."""
+    step_name = None
+    step_action = None
+    step_number = None
+
+    if session.procedure and 0 <= session.current_index < len(session.procedure.steps):
+        step = session.procedure.steps[session.current_index]
+        step_name = step.name
+        step_number = session.current_index + 1
+        # Legacy steps don't have an action field
+        step_action = None
+
+    return step_number, step_name, step_action
+
 @router.post("/assist")
 async def agent_assist(
     query: str = Body(..., embed=True),
@@ -20,41 +52,79 @@ async def agent_assist(
     """
     logger.info(f"Received agent assist request. User: {username}, Session: {session_id}, Query: {query}")
 
-    session = None
+    external_session_id = None
+    procedure_name = None
+    step_number = None
+    step_name = None
+    step_action = None
 
-    # 1. Try lookup by session_id
-    if session_id:
-        session = procedure_service.get_session_by_external_id(session_id)
-        if not session:
-            logger.warning(f"No active session found for external ID {session_id}")
-            raise HTTPException(status_code=404, detail=f"No active session found for session ID {session_id}")
+    # Check which strategy is active
+    if settings.PROCEDURE_STRATEGY == "nodegraph":
+        from app.services.nodegraph_service import get_nodegraph_service
+        nodegraph_svc = get_nodegraph_service()
 
-    # 2. Try lookup by username if session not found yet
-    elif username:
-        sessions = procedure_service._active_sessions.get(username)
-        if sessions:
-            # Assume the first session is the active one we care about
-            session = sessions[0]
+        ng_session = None
+        if session_id:
+            # Look up by external session ID
+            for user, sess in nodegraph_svc._sessions.items():
+                if sess.external_session_id == session_id:
+                    ng_session = sess
+                    break
+            if not ng_session:
+                logger.warning(f"No active NodeGraph session found for external ID {session_id}")
+                raise HTTPException(status_code=404, detail=f"No active session found for session ID {session_id}")
+        elif username:
+            ng_session = nodegraph_svc.get_session(username)
+            if not ng_session:
+                logger.warning(f"No active NodeGraph session found for user {username}")
+                raise HTTPException(status_code=400, detail=f"No active session found for user {username}")
         else:
-            logger.warning(f"No active session found for user {username}")
-            raise HTTPException(status_code=400, detail=f"No active session found for user {username}")
-    
+            raise HTTPException(status_code=400, detail="Must provide either 'session_id' or 'username'")
+
+        if not ng_session.external_session_id:
+            logger.warning(f"Active NodeGraph session for user {ng_session.username} has no external session ID")
+            raise HTTPException(status_code=400, detail="Active session has no external session ID (Memory Service not connected?)")
+
+        external_session_id = ng_session.external_session_id
+        procedure_name = ng_session.procedure.title
+        step_number, step_name, step_action = _get_step_info_from_nodegraph_session(ng_session)
+
     else:
-        raise HTTPException(status_code=400, detail="Must provide either 'session_id' or 'username'")
+        # Legacy strategy
+        session = None
+        if session_id:
+            session = procedure_service.get_session_by_external_id(session_id)
+            if not session:
+                logger.warning(f"No active session found for external ID {session_id}")
+                raise HTTPException(status_code=404, detail=f"No active session found for session ID {session_id}")
+        elif username:
+            sessions = procedure_service._active_sessions.get(username)
+            if sessions:
+                session = sessions[0]
+            else:
+                logger.warning(f"No active session found for user {username}")
+                raise HTTPException(status_code=400, detail=f"No active session found for user {username}")
+        else:
+            raise HTTPException(status_code=400, detail="Must provide either 'session_id' or 'username'")
 
-    # Validate session has external ID (if looked up by username)
-    if not session.external_session_id:
-         logger.warning(f"Active session for user {session.username} has no external session ID")
-         raise HTTPException(status_code=400, detail="Active session has no external session ID (Memory Service not connected?)")
+        if not session.external_session_id:
+            logger.warning(f"Active session for user {session.username} has no external session ID")
+            raise HTTPException(status_code=400, detail="Active session has no external session ID (Memory Service not connected?)")
 
-    # 3. Prepare payload
+        external_session_id = session.external_session_id
+        procedure_name = session.procedure.name if session.procedure else None
+        step_number, step_name, step_action = _get_step_info_from_legacy_session(session)
+
+    # 3. Prepare payload with correct field names for Memory Service
     payload = {
-        "session_id": session.external_session_id,
+        "session_id": external_session_id,
         "query": query,
-        "current_step_name": session.procedure.steps[session.current_index].name if session.procedure else None,
-        "procedure_name": session.procedure.name if session.procedure else None
+        "procedure_name": procedure_name,
+        "step_number": step_number,
+        "step_name": step_name,
+        "step_action": step_action
     }
-    
+
     logger.debug(f"Forwarding to memory service: {payload}")
 
     # 4. Call Memory Service

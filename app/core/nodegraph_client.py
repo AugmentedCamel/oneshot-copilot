@@ -96,29 +96,45 @@ class NodeGraphClient:
         user_id: str,
         target_classes: List[str],
         excluded_candidates: List[str] = None,
-        candidate_scope: List[str] = None
+        candidate_scope: List[str] = None,
+        callback_url: Optional[str] = None,
+        session_id: Optional[str] = None,
+        frame_id: Optional[str] = None
     ) -> bool:
         """Submit a frame for async processing (non-blocking).
-        
+
         This calls POST /stepnode/ingest which returns 202 immediately.
         The AI node buffers the frame and processes it asynchronously.
-        
+        Results are delivered via callback to the specified callback_url.
+
+        Args:
+            frame_bytes: JPEG image bytes
+            procedure_id: ID of the procedure being executed
+            user_id: Username for tracking (sent as 'username' to AI node)
+            target_classes: List of class names to detect
+            excluded_candidates: Classes to exclude from detection
+            candidate_scope: Limit detection to these candidates
+            callback_url: URL where AI node should POST results
+            session_id: Session ID for stale callback detection
+            frame_id: Frame ID for chronological tracking
+
         Returns:
             True if frame was accepted (202), False otherwise
         """
         client = await self._ensure_connected()
-        
+
         # ==============================================================
         # ASPECT RATIO NORMALIZATION: AI model trained on 16:9 landscape
         # See app/core/aspect_ratio.py for full documentation
         # ==============================================================
         frame_bytes = normalize_to_landscape_aspect_ratio(frame_bytes)
-        
-        logger.debug(
+
+        logger.info(
             f"[NODEGRAPH_CLIENT] Ingesting frame async for {user_id}, "
-            f"procedure={procedure_id}, classes={target_classes}"
+            f"procedure={procedure_id}, classes={target_classes}, "
+            f"callback_url={callback_url}, session_id={session_id}, frame_id={frame_id}"
         )
-        
+
         try:
             files = {
                 "file": ("frame.jpg", frame_bytes, "image/jpeg")
@@ -129,11 +145,26 @@ class NodeGraphClient:
                 "excluded_candidates": json.dumps(excluded_candidates or []),
                 "candidate_scope": json.dumps(candidate_scope or [])
             }
-            
+
+            # Add callback and user tracking fields (new stepnode pipeline)
+            if callback_url:
+                data["callback_url"] = callback_url
+            if user_id:
+                data["username"] = user_id  # New field name for multi-user tracking
+            if session_id:
+                data["session_id"] = session_id
+            if frame_id:
+                data["frame_id"] = frame_id
+
+            logger.debug(f"[NODEGRAPH_CLIENT] POST /stepnode/ingest data={data}")
+
             response = await client.post("/stepnode/ingest", files=files, data=data)
-            
+
             if response.status_code == 202:
-                logger.debug("[NODEGRAPH_CLIENT] Frame accepted for async processing")
+                logger.info(
+                    f"[NODEGRAPH_CLIENT] Frame accepted for async processing "
+                    f"(user={user_id}, procedure={procedure_id})"
+                )
                 return True
             else:
                 logger.warning(
@@ -141,7 +172,7 @@ class NodeGraphClient:
                     f"{response.text}"
                 )
                 return False
-                
+
         except httpx.ConnectError as e:
             logger.error(f"[NODEGRAPH_CLIENT] Ingest connection failed: {e}")
             return False
@@ -308,7 +339,10 @@ async def ingest_frame_async(
     user_id: str,
     target_classes: List[str],
     excluded_candidates: List[str] = None,
-    candidate_scope: List[str] = None
+    candidate_scope: List[str] = None,
+    callback_url: Optional[str] = None,
+    session_id: Optional[str] = None,
+    frame_id: Optional[str] = None
 ) -> bool:
     """Backward-compatible wrapper for ingest_frame_async."""
     client = get_nodegraph_client()
@@ -318,7 +352,10 @@ async def ingest_frame_async(
         user_id=user_id,
         target_classes=target_classes,
         excluded_candidates=excluded_candidates,
-        candidate_scope=candidate_scope
+        candidate_scope=candidate_scope,
+        callback_url=callback_url,
+        session_id=session_id,
+        frame_id=frame_id
     )
 
 

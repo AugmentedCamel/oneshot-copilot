@@ -205,7 +205,113 @@ GET /stepnode/stats
 
 ---
 
-### Async Architecture
+### Async Architecture (Callback Mode)
+
+The NodeGraph service now uses **callback-based result delivery** instead of polling. The AI Node pushes reasoning results to the Copilot when ready.
+
+```mermaid
+sequenceDiagram
+    participant FS as Frame Source
+    participant NGS as NodeGraphService
+    participant AI as AI Node
+    participant Client as Android/Client
+    
+    FS->>NGS: Frame arrives
+    NGS->>AI: POST /stepnode/ingest (202)
+    
+    Note over AI: AI processes batch (3-5s)
+    
+    AI->>NGS: POST /api/vlm/vla_callback
+    NGS->>NGS: handle_ai_callback()
+    NGS->>NGS: evaluate_guards()
+    NGS->>Client: SSE: agent_reply (TTS)
+```
+
+#### POST /api/vlm/vla_callback
+
+Receives raw predictions from the AI Node stepnode batching pipeline. Called once per frame in chronological order.
+
+```
+POST /api/vlm/vla_callback
+Content-Type: application/json
+```
+
+**Request Payload:**
+
+```json
+{
+  "predictions": {
+    "open_door_dishwasher": 0.85,
+    "closed_door_dishwasher": 0.15
+  },
+  "all_probabilities": {
+    "open_door_dishwasher": 0.85,
+    "closed_door_dishwasher": 0.15,
+    "class_irrelevant": 0.00
+  },
+  "sequence_id": 142,
+  "timings": {
+    "forward_pass_ms": 18.2,
+    "total_ms": 25.3
+  },
+  "_buffer_metadata": {
+    "procedure_id": "dishwasher_salt_v1",
+    "user_id": "chef_mike",
+    "session_id": "abc-123-def",
+    "batch_index": 0,
+    "batch_size": 8,
+    "inference_ms": 202.4,
+    "per_image_ms": 25.3,
+    "processed_at": "2026-01-05T10:23:45.123Z"
+  }
+}
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `predictions` | Dict | Class probabilities for target classes |
+| `all_probabilities` | Dict | Full softmax distribution |
+| `sequence_id` | int | Monotonic ID for deduplication |
+| `_buffer_metadata.user_id` | string | **(Required)** Username from original `/ingest` |
+| `_buffer_metadata.session_id` | string | Session ID for stale callback detection |
+| `_buffer_metadata.batch_index` | int | Position in batch (0-based) |
+| `_buffer_metadata.batch_size` | int | Total frames in this batch |
+
+**Response:**
+
+```json
+{
+  "status": "acknowledged",
+  "processed": true,
+  "sequence_id": 142,
+  "batch_index": 0,
+  "events_count": 0,
+  "node_id": "step_02_remove_rack"
+}
+```
+
+**Stale Callback Handling:**
+
+If a callback arrives for a `session_id` that doesn't match the current session, the callback is gracefully discarded:
+
+```json
+{
+  "status": "acknowledged",
+  "processed": false,
+  "reason": "stale_session"
+}
+```
+
+---
+
+### Async Architecture (Polling Mode - DEPRECATED)
+
+> [!WARNING]
+> Polling mode is deprecated. The AI Node should use the callback API instead.
+
+The polling approach is still available in the codebase but disabled by default. To re-enable, uncomment the polling loop in `NodeGraphProcedureService.start_procedure()`.
 
 ```mermaid
 sequenceDiagram
@@ -213,7 +319,7 @@ sequenceDiagram
     participant NGS as NodeGraphService
     participant AI as AI Node
     
-    Note over NGS: Polling loop @ 5Hz
+    Note over NGS: Polling loop @ 5Hz (DEPRECATED)
     
     FS->>NGS: Frame arrives
     NGS->>AI: POST /stepnode/ingest (202)
